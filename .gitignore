@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# Convex generated
+convex/_generated/
+
+# Environment secrets
+.env.local
+.env
+
+# Native builds
+ios/
+android/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# TypeScript
+*.tsbuildinfo
