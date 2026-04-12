@@ -87,7 +87,42 @@ export const importDocument = action({
         "Extract key visual concepts, processes, diagrams, or structures described in this document. For each, write a 'front' that asks about the visual concept, and a 'back' that describes it in detail including any components or steps. Return JSON: [{\"front\": \"...\", \"back\": \"...\"}]",
     };
 
-    const prompt = prompts[cardType];
+    // Fetch the document content to send inline to Gemini
+    let fileContent: string;
+    let mimeTypeForGemini = "text/plain";
+
+    try {
+      const fileRes = await fetch(fileUrl);
+      if (!fileRes.ok) throw new Error(`File fetch failed: ${fileRes.status}`);
+
+      const contentType = fileRes.headers.get("content-type") ?? "application/octet-stream";
+
+      if (contentType.includes("pdf")) {
+        mimeTypeForGemini = "application/pdf";
+        const buffer = await fileRes.arrayBuffer();
+        fileContent = Buffer.from(buffer).toString("base64");
+      } else if (contentType.startsWith("image/")) {
+        mimeTypeForGemini = contentType.split(";")[0];
+        const buffer = await fileRes.arrayBuffer();
+        fileContent = Buffer.from(buffer).toString("base64");
+      } else {
+        // Plain text / JSON / etc
+        mimeTypeForGemini = "text/plain";
+        fileContent = await fileRes.text();
+        // For text, encode as base64 too
+        fileContent = Buffer.from(fileContent).toString("base64");
+      }
+    } catch (err: any) {
+      throw new ConvexError(`Could not read document: ${err?.message ?? err}`);
+    }
+
+    // Build Gemini request with inline document data
+    const geminiParts:
+      | { text: string }[]
+      | { inlineData: { mimeType: string; data: string } }[] = [
+      { text: prompt },
+      { inlineData: { mimeType: mimeTypeForGemini, data: fileContent } },
+    ];
 
     // Call Gemini API
     const response = await fetch(
@@ -96,15 +131,7 @@ export const importDocument = action({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: `${prompt}\n\nDocument filename: ${fileName}\n\nPlease process the document from this URL and extract flashcard content: ${fileUrl}`,
-                },
-              ],
-            },
-          ],
+          contents: [{ parts: geminiParts }],
           generationConfig: {
             responseMimeType: "application/json",
           },

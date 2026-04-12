@@ -3,8 +3,8 @@ import { action, mutation, query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { api } from "./_generated/api";
 
-// PayPal plan IDs (set these after creating plans in PayPal Developer Dashboard)
-const PAYPAL_BASE_URL = "https://api-m.sandbox.paypal.com"; // switch to live for production
+// Live PayPal API — money goes directly to @noaguinang
+const PAYPAL_BASE_URL = "https://api-m.paypal.com";
 const PLANS = {
   starter: {
     name: "Sinko Starter",
@@ -36,7 +36,15 @@ async function getPayPalAccessToken(): Promise<string> {
     body: "grant_type=client_credentials",
   });
 
+  if (!response.ok) {
+    const err = await response.json();
+    throw new ConvexError(`PayPal auth failed: ${err.error_description ?? response.statusText}`);
+  }
+
   const data = await response.json();
+  if (!data.access_token) {
+    throw new ConvexError("PayPal returned no access token — check your Client ID and Secret");
+  }
   return data.access_token;
 }
 
@@ -77,11 +85,20 @@ export const createPayPalOrder = action({
       }),
     });
 
+    if (!response.ok) {
+      const err = await response.json();
+      throw new ConvexError(`PayPal order creation failed: ${JSON.stringify(err.details ?? err.message ?? err)}`);
+    }
+
     const order = await response.json();
 
     const approvalLink = order.links?.find(
-      (l: { rel: string; href: string }) => l.rel === "approve"
+      (l: { rel: string; href: string }) => l.rel === "approve" || l.rel === "payer-action"
     )?.href;
+
+    if (!approvalLink) {
+      throw new ConvexError("PayPal did not return an approval URL");
+    }
 
     return { orderId: order.id, approvalUrl: approvalLink };
   },
@@ -108,6 +125,11 @@ export const capturePayPalOrder = action({
         },
       }
     );
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new ConvexError(`PayPal capture failed: ${JSON.stringify(err.details ?? err.message ?? err)}`);
+    }
 
     const capture = await response.json();
 
