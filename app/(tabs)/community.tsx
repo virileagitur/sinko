@@ -35,7 +35,7 @@ export default function CommunityScreen() {
                 <TouchableOpacity
                   key={group._id}
                   style={styles.groupCard}
-                  onPress={() => router.push(`/group/${group._id}`)}
+                  onPress={() => router.push(`/group/${group._id}` as any)}
                   activeOpacity={0.85}
                 >
                   <View style={[styles.groupAvatar, { backgroundColor: group.avatarColor + '25' }]}>

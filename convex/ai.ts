@@ -117,10 +117,12 @@ export const importDocument = action({
     }
 
     // Build Gemini request with inline document data
-    const geminiParts:
-      | { text: string }[]
-      | { inlineData: { mimeType: string; data: string } }[] = [
-      { text: prompt },
+    type GeminiPart =
+      | { text: string }
+      | { inlineData: { mimeType: string; data: string } };
+
+    const geminiParts: GeminiPart[] = [
+      { text: prompts[cardType] },
       { inlineData: { mimeType: mimeTypeForGemini, data: fileContent } },
     ];
 

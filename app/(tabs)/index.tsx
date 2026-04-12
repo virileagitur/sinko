@@ -76,7 +76,7 @@ export default function HomeScreen() {
                 style={styles.modeCard}
                 onPress={() => {
                   if (myDecks && myDecks.length > 0) {
-                    router.push(`/study/${mode.id}?deckId=${myDecks[0]._id}`);
+                    router.push(`/study/${mode.id}?deckId=${myDecks[0]._id}` as any);
                   } else {
                     router.push('/discover');
                   }

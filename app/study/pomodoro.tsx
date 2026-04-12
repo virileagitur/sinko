@@ -5,6 +5,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
+import { Id } from '../../convex/_generated/dataModel';
 import { Colors, Spacing, Radius } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle, Line, G, Text as SvgText } from 'react-native-svg';
@@ -18,7 +19,10 @@ type Phase = 'work' | 'break' | 'longBreak';
 
 export default function PomodoroScreen() {
   const { deckId } = useLocalSearchParams<{ deckId?: string }>();
-  const deck = useQuery(api.decks.getById, deckId ? { deckId } : 'skip');
+  const deck = useQuery(
+    api.decks.getById,
+    deckId ? { deckId: deckId as Id<'decks'> } : 'skip'
+  );
   const startSession = useMutation(api.study.startSession);
   const endSession = useMutation(api.study.endSession);
 

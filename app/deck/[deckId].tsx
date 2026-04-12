@@ -87,7 +87,7 @@ export default function DeckDetailScreen() {
               <TouchableOpacity
                 key={mode.id}
                 style={styles.modeChip}
-                onPress={() => router.push(`/study/${mode.id}?deckId=${deckId}`)}
+                onPress={() => router.push(`/study/${mode.id}?deckId=${deckId}` as any)}
               >
                 <Ionicons name={mode.icon as any} size={18} color={Colors.azure} />
                 <Text style={styles.modeChipText}>{mode.label}</Text>

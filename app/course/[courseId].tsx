@@ -123,7 +123,7 @@ export default function CourseDetailScreen() {
                 <TouchableOpacity
                   key={post._id}
                   style={styles.postCard}
-                  onPress={() => router.push(`/forum/${post._id}`)}
+                  onPress={() => router.push(`/forum/${post._id}` as any)}
                   activeOpacity={0.85}
                 >
                   {post.isPinned && (
@@ -186,7 +186,7 @@ export default function CourseDetailScreen() {
                 <TouchableOpacity
                   key={group._id}
                   style={styles.groupCard}
-                  onPress={() => router.push(`/group/${group._id}`)}
+                  onPress={() => router.push(`/group/${group._id}` as any)}
                   activeOpacity={0.85}
                 >
                   <View style={[styles.groupAvatar, { backgroundColor: group.avatarColor + '25' }]}>

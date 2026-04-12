@@ -6,7 +6,7 @@ import { useLocalSearchParams, router, useNavigation } from 'expo-router';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { Colors, Typography, Spacing, Radius } from '../../constants/theme';
-import { Button, emptyState } from '../../components/ui';
+import { Button } from '../../components/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';

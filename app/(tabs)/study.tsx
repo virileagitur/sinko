@@ -66,7 +66,7 @@ export default function StudyHubScreen() {
       router.push('/discover');
       return;
     }
-    router.push(`/study/${modeId}?deckId=${myDecks[0]._id}`);
+    router.push(`/study/${modeId}?deckId=${myDecks[0]._id}` as any);
   };
 
   return (
