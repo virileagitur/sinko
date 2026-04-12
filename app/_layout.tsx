@@ -4,14 +4,22 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import * as SecureStore from "expo-secure-store";
 import { Colors } from "../constants/theme";
 
 const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!);
 
+// Wrap SecureStore so it matches the localStorage API ConvexAuthProvider expects
+const secureStorage = {
+  getItem: (key: string) => SecureStore.getItemAsync(key),
+  setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
+  removeItem: (key: string) => SecureStore.deleteItemAsync(key),
+};
+
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ConvexAuthProvider client={convex} storage={require("expo-secure-store")}>
+      <ConvexAuthProvider client={convex} storage={secureStorage}>
         <SafeAreaProvider>
           <StatusBar style="dark" />
           <Stack
@@ -35,9 +43,11 @@ export default function RootLayout() {
             <Stack.Screen name="study/quiz" options={{ headerShown: false }} />
             <Stack.Screen name="study/matching" options={{ headerShown: false }} />
             <Stack.Screen name="study/spaced" options={{ headerShown: false }} />
+            <Stack.Screen name="study/write" options={{ headerShown: false }} />
             <Stack.Screen name="forum/[postId]" options={{ title: 'Discussion' }} />
             <Stack.Screen name="group/[groupId]" options={{ title: 'Group' }} />
             <Stack.Screen name="ai/import" options={{ title: 'AI Import', presentation: 'modal' }} />
+            <Stack.Screen name="ai/preview" options={{ title: 'Review Cards', presentation: 'modal' }} />
             <Stack.Screen name="settings/profile" options={{ title: 'Edit Profile' }} />
             <Stack.Screen name="settings/subscription" options={{ title: 'Subscription' }} />
           </Stack>
