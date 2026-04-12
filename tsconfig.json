@@ -7,14 +7,15 @@
         "./*"
       ]
     },
-    "typeRoots": ["./types", "./node_modules/@types"]
+    "typeRoots": [
+      "./types",
+      "./node_modules/@types"
+    ]
   },
   "include": [
     "**/*.ts",
     "**/*.tsx",
     ".expo/types/**/*.d.ts",
-    "expo-env.d.ts",
-    ".expo/types/**/*.ts",
     "types/**/*.d.ts"
   ]
 }
