@@ -90,6 +90,90 @@ export const getComments = query({
   },
 });
 
+// Alias with author profile data joined
+export const listComments = query({
+  args: { postId: v.id("forumPosts") },
+  handler: async (ctx, { postId }) => {
+    const comments = await ctx.db
+      .query("forumComments")
+      .withIndex("by_post", (q) => q.eq("postId", postId))
+      .order("asc")
+      .collect();
+
+    return Promise.all(
+      comments.map(async (c) => {
+        const profile = await ctx.db
+          .query("userProfiles")
+          .withIndex("by_userId", (q) => q.eq("userId", c.authorId))
+          .first();
+        return {
+          ...c,
+          authorName: profile?.name ?? "Student",
+          authorAvatar: profile?.avatarUrl,
+        };
+      })
+    );
+  },
+});
+
+export const listByGroup = query({
+  args: { groupId: v.id("groups") },
+  handler: async (ctx, { groupId }) => {
+    const posts = await ctx.db
+      .query("forumPosts")
+      .withIndex("by_group", (q) => q.eq("groupId", groupId))
+      .collect();
+    return posts.sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return b._creationTime - a._creationTime;
+    });
+  },
+});
+
+// Alias for addReaction used by forum thread
+export const addReaction = mutation({
+  args: {
+    postId: v.id("forumPosts"),
+    reaction: v.union(v.literal("like"), v.literal("helpful"), v.literal("fire")),
+  },
+  handler: async (ctx, { postId, reaction }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new ConvexError("Not authenticated");
+
+    const existing = await ctx.db
+      .query("postReactions")
+      .withIndex("by_post_user", (q) => q.eq("postId", postId).eq("userId", userId))
+      .first();
+
+    const post = await ctx.db.get(postId);
+    if (!post) return;
+
+    if (existing) {
+      if (existing.type === reaction) {
+        await ctx.db.delete(existing._id);
+        await ctx.db.patch(postId, {
+          reactions: { ...post.reactions, [reaction]: Math.max(0, post.reactions[reaction] - 1) },
+        });
+      } else {
+        await ctx.db.patch(existing._id, { type: reaction });
+        await ctx.db.patch(postId, {
+          reactions: {
+            ...post.reactions,
+            [existing.type]: Math.max(0, post.reactions[existing.type as keyof typeof post.reactions] - 1),
+            [reaction]: post.reactions[reaction] + 1,
+          },
+        });
+      }
+    } else {
+      await ctx.db.insert("postReactions", { postId, userId, type: reaction });
+      await ctx.db.patch(postId, {
+        reactions: { ...post.reactions, [reaction]: post.reactions[reaction] + 1 },
+      });
+    }
+  },
+});
+
 export const reactToPost = mutation({
   args: {
     postId: v.id("forumPosts"),

@@ -96,6 +96,31 @@ export const getById = query({
   handler: async (ctx, { groupId }) => ctx.db.get(groupId),
 });
 
+export const getMembers = query({
+  args: { groupId: v.id("groups") },
+  handler: async (ctx, { groupId }) => {
+    const memberships = await ctx.db
+      .query("groupMembers")
+      .withIndex("by_group", (q) => q.eq("groupId", groupId))
+      .collect();
+
+    return Promise.all(
+      memberships.map(async (m) => {
+        const profile = await ctx.db
+          .query("userProfiles")
+          .withIndex("by_userId", (q) => q.eq("userId", m.userId))
+          .first();
+        return {
+          ...m,
+          name: profile?.name ?? "Student",
+          avatarUrl: profile?.avatarUrl,
+          school: profile?.school,
+        };
+      })
+    );
+  },
+});
+
 export const getMyGroups = query({
   args: {},
   handler: async (ctx) => {
