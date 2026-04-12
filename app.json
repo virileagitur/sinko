@@ -12,7 +12,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#EFF6FF"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.sinko.flashcard"
@@ -33,7 +35,10 @@
               "host": "subscription"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -57,7 +62,8 @@
           "iCloudContainerEnvironment": "Production"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-web-browser"
     ],
     "experiments": {}
   }
