@@ -5,8 +5,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuthActions } from '@convex-dev/auth/react';
-import { useMutation } from 'convex/react';
-import { api } from '../../convex/_generated/api';
+
 import { Colors, Typography, Spacing, Radius } from '../../constants/theme';
 import { Button, Input } from '../../components/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,7 +21,7 @@ const YEAR_LEVELS = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year',
 
 export default function SignupScreen() {
   const { signIn } = useAuthActions();
-  const ensureProfile = useMutation(api.users.ensureProfile);
+
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -79,7 +78,6 @@ export default function SignupScreen() {
     setLoading(true);
     try {
       await signIn('password', { email, password, flow: 'signUp', name });
-      await ensureProfile({ name });
       router.replace('/(tabs)');
     } catch (err: any) {
       Alert.alert('Sign up failed', err?.message || 'Something went wrong. Please try again.');

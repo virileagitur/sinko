@@ -1,18 +1,29 @@
 import { Tabs, router } from 'expo-router';
-import { useConvexAuth } from 'convex/react';
+import { useConvexAuth, useMutation, useQuery } from 'convex/react';
 import { useEffect } from 'react';
 import { Colors } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
+import { api } from '../../convex/_generated/api';
 
 export default function TabsLayout() {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const profile = useQuery(api.users.getMyProfile);
+  const ensureProfile = useMutation(api.users.ensureProfile);
 
+  // Redirect to login if not authenticated
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.replace('/(auth)/login');
     }
   }, [isAuthenticated, isLoading]);
+
+  // Auto-create profile once authenticated and profile doesn't exist yet
+  useEffect(() => {
+    if (isAuthenticated && profile === null) {
+      ensureProfile({ name: 'Student' }).catch(() => {});
+    }
+  }, [isAuthenticated, profile]);
 
   if (!isAuthenticated) return null;
 

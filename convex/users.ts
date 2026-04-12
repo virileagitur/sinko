@@ -17,7 +17,7 @@ export const getMyProfile = query({
 });
 
 export const ensureProfile = mutation({
-  args: { name: v.string(), email: v.optional(v.string()) },
+  args: { name: v.optional(v.string()), email: v.optional(v.string()) },
   handler: async (ctx, { name }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new ConvexError("Not authenticated");
@@ -29,9 +29,16 @@ export const ensureProfile = mutation({
 
     if (existing) return existing._id;
 
+    // Try to get name from the auth user record if not provided
+    let displayName = name;
+    if (!displayName) {
+      const user = await ctx.db.get(userId);
+      displayName = (user as any)?.name ?? (user as any)?.email?.split('@')[0] ?? 'Student';
+    }
+
     return await ctx.db.insert("userProfiles", {
       userId,
-      name,
+      name: displayName,
       plan: "free",
       dailyImportCount: 0,
       streakDays: 0,
