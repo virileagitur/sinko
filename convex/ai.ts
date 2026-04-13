@@ -58,7 +58,7 @@ export const incrementImportCount = mutation({
 // Main AI import action — runs server-side so API key is never exposed
 export const importDocument = action({
   args: {
-    fileUrl: v.string(),
+    storageId: v.id("_storage"),
     fileName: v.string(),
     cardType: v.union(
       v.literal("basic"),
@@ -68,12 +68,16 @@ export const importDocument = action({
     ),
     deckId: v.id("decks"),
   },
-  handler: async (ctx, { fileUrl, fileName, cardType, deckId }) => {
+  handler: async (ctx, { storageId, fileName, cardType, deckId }) => {
     const userId = await ctx.auth.getUserIdentity();
     if (!userId) throw new ConvexError("Not authenticated");
 
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new ConvexError("AI service not configured");
+    if (!apiKey) throw new ConvexError("AI service not configured — add GEMINI_API_KEY to Convex env vars");
+
+    // Resolve storage URL server-side (the only correct way)
+    const fileUrl = await ctx.storage.getUrl(storageId);
+    if (!fileUrl) throw new ConvexError("File not found in storage");
 
     // Determine prompt by card type
     const prompts: Record<string, string> = {

@@ -107,12 +107,9 @@ export default function AIImportScreen() {
       if (!uploadRes.ok) throw new Error('File upload failed');
       const { storageId } = await uploadRes.json();
 
-      // 2. Build the file URL for Convex to fetch
-      const fileUrl = `${process.env.EXPO_PUBLIC_CONVEX_URL}/api/storage/${storageId}`;
-
-      // 3. Call the AI action (runs server-side with GEMINI_API_KEY)
+      // 3. Call the AI action — passes storageId so Convex resolves the URL server-side
       const result = await runImport({
-        fileUrl,
+        storageId,
         fileName: selectedFile.name,
         cardType,
         deckId: selectedDeckId as any,
