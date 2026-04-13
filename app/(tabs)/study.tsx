@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
@@ -78,12 +78,11 @@ export default function StudyHubScreen() {
         </View>
 
         <View style={styles.modesList}>
-          {MODES.map((mode) => (
-            <TouchableOpacity
+        {MODES.map((mode) => (
+            <Pressable
               key={mode.id}
-              style={styles.modeRow}
-              onPress={() => startMode(mode.id)}
-              activeOpacity={0.85}
+              style={({ pressed }) => [styles.modeRow, pressed && { opacity: 0.75 }]}
+              onPress={() => requestAnimationFrame(() => startMode(mode.id))}
             >
               <View style={[styles.modeIconWrap, { backgroundColor: mode.bg }]}>
                 <Ionicons name={mode.icon as any} size={26} color={mode.color} />
@@ -93,7 +92,7 @@ export default function StudyHubScreen() {
                 <Text style={styles.modeDesc}>{mode.desc}</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={Colors.textLight} />
-            </TouchableOpacity>
+            </Pressable>
           ))}
         </View>
 

@@ -8,9 +8,9 @@ export const createPost = mutation({
     groupId: v.optional(v.id("groups")),
     title: v.string(),
     content: v.string(),
-    fileStorageIds: v.array(v.id("_storage")),
-    fileUrls: v.array(v.string()),
-    fileNames: v.array(v.string()),
+    fileStorageIds: v.optional(v.array(v.id("_storage"))),
+    fileUrls: v.optional(v.array(v.string())),
+    fileNames: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -18,6 +18,9 @@ export const createPost = mutation({
 
     return ctx.db.insert("forumPosts", {
       ...args,
+      fileStorageIds: args.fileStorageIds ?? [],
+      fileUrls: args.fileUrls ?? [],
+      fileNames: args.fileNames ?? [],
       authorId: userId,
       reactions: { like: 0, helpful: 0, fire: 0 },
       viewCount: 0,

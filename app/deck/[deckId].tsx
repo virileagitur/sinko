@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, Alert
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useQuery, useMutation } from 'convex/react';
@@ -25,14 +25,7 @@ export default function DeckDetailScreen() {
   const createCard = useMutation(api.cards.create);
 
   const handleAddCard = () => {
-    Alert.alert('Add Card', 'Enter question and answer', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Open Editor', onPress: () => {
-          router.push(`/card/new/edit?deckId=${deckId}`);
-        }
-      }
-    ]);
+    router.push(`/card/new/edit?deckId=${deckId}` as any);
   };
 
   const handleDelete = () => {
@@ -84,14 +77,14 @@ export default function DeckDetailScreen() {
           <Text style={styles.sectionTitle}>Study this Deck</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.modeScroll}>
             {STUDY_MODES.map((mode) => (
-              <TouchableOpacity
+              <Pressable
                 key={mode.id}
-                style={styles.modeChip}
-                onPress={() => router.push(`/study/${mode.id}?deckId=${deckId}` as any)}
+                style={({ pressed }) => [styles.modeChip, pressed && { opacity: 0.7 }]}
+                onPress={() => requestAnimationFrame(() => router.push(`/study/${mode.id}?deckId=${deckId}` as any))}
               >
                 <Ionicons name={mode.icon as any} size={18} color={Colors.azure} />
                 <Text style={styles.modeChipText}>{mode.label}</Text>
-              </TouchableOpacity>
+              </Pressable>
             ))}
           </ScrollView>
         </View>

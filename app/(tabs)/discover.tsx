@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput
+  View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Modal,
+  KeyboardAvoidingView, Platform, Pressable,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery, useMutation } from 'convex/react';
@@ -25,10 +26,9 @@ export default function DiscoverScreen() {
   }, [courses]);
 
   const renderCourse = ({ item }: { item: any }) => (
-    <TouchableOpacity
-      style={styles.courseCard}
+    <Pressable
+      style={({ pressed }) => [styles.courseCard, pressed && { opacity: 0.8 }]}
       onPress={() => router.push(`/course/${item._id}`)}
-      activeOpacity={0.85}
     >
       <View style={[styles.courseIcon, { backgroundColor: item.color + '18' }]}>
         <Text style={{ fontSize: 28 }}>{item.icon}</Text>
@@ -39,11 +39,12 @@ export default function DiscoverScreen() {
         <Text style={styles.courseDesc} numberOfLines={1}>{item.description}</Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={Colors.textLight} />
-    </TouchableOpacity>
+    </Pressable>
   );
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bg }} edges={['top']}>
+  // Fix #2: use ListHeaderComponent so filter row scrolls with the list — no overlap
+  const ListHeader = () => (
+    <>
       {/* Search Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
@@ -63,7 +64,7 @@ export default function DiscoverScreen() {
         </View>
       </View>
 
-      {/* Department Filter */}
+      {/* Department Filter — inside the list so it scrolls with content */}
       {departments && departments.length > 0 && (
         <FlatList
           horizontal
@@ -91,12 +92,16 @@ export default function DiscoverScreen() {
           )}
         />
       )}
+    </>
+  );
 
-      {/* Course List */}
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bg }} edges={['top']}>
       <FlatList
         data={courses}
         keyExtractor={(item) => item._id}
         renderItem={renderCourse}
+        ListHeaderComponent={ListHeader}
         contentContainerStyle={styles.list}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListEmptyComponent={() => (
@@ -148,21 +153,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.borderLight,
     marginRight: Spacing.xs,
   },
-  filterChipActive: {
-    backgroundColor: Colors.azure,
-  },
-  filterChipText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: Colors.textMuted,
-  },
-  filterChipTextActive: {
-    color: Colors.white,
-  },
-  list: {
-    padding: Spacing.md,
-    paddingBottom: 100,
-  },
+  filterChipActive: { backgroundColor: Colors.azure },
+  filterChipText: { fontSize: 13, fontWeight: '500', color: Colors.textMuted },
+  filterChipTextActive: { color: Colors.white },
+  list: { padding: Spacing.md, paddingBottom: 100 },
   courseCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -180,29 +174,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  courseInfo: {
-    flex: 1,
-  },
-  courseName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.text,
-  },
-  courseDepth: {
-    ...Typography.caption,
-    color: Colors.azure,
-    marginTop: 1,
-  },
-  courseDesc: {
-    ...Typography.caption,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  separator: {
-    height: Spacing.sm,
-  },
-  empty: {
-    paddingTop: Spacing.xxl,
-    padding: Spacing.xl,
-  },
+  courseInfo: { flex: 1 },
+  courseName: { fontSize: 15, fontWeight: '600', color: Colors.text },
+  courseDepth: { ...Typography.caption, color: Colors.azure, marginTop: 1 },
+  courseDesc: { ...Typography.caption, color: Colors.textMuted, marginTop: 2 },
+  separator: { height: Spacing.sm },
+  empty: { paddingTop: Spacing.xxl, padding: Spacing.xl },
 });

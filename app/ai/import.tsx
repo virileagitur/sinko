@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator
 } from 'react-native';
-import { useLocalSearchParams, router, useNavigation } from 'expo-router';
-import { useQuery, useMutation } from 'convex/react';
+import { useLocalSearchParams, router } from 'expo-router';
+import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { Colors, Typography, Spacing, Radius } from '../../constants/theme';
 import { Button } from '../../components/ui';
@@ -50,6 +50,7 @@ export default function AIImportScreen() {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'select' | 'configure' | 'processing' | 'done'>('select');
   const [generatedCount, setGeneratedCount] = useState(0);
+  const runImport = useAction(api.ai.importDocument);
 
   React.useEffect(() => {
     if (deckId) setSelectedDeckId(deckId);
@@ -92,7 +93,7 @@ export default function AIImportScreen() {
     setLoading(true);
 
     try {
-      // Upload file to Convex storage
+      // 1. Upload file to Convex storage
       const uploadUrl = await generateUploadUrl();
       const fileData = await fetch(selectedFile.uri);
       const blob = await fileData.blob();
@@ -103,25 +104,34 @@ export default function AIImportScreen() {
         body: blob,
       });
 
-      if (!uploadRes.ok) throw new Error('Upload failed');
-
+      if (!uploadRes.ok) throw new Error('File upload failed');
       const { storageId } = await uploadRes.json();
 
-      // Get stored file URL
-      const { fetch: convexFetch } = require('convex/react');
+      // 2. Build the file URL for Convex to fetch
       const fileUrl = `${process.env.EXPO_PUBLIC_CONVEX_URL}/api/storage/${storageId}`;
 
-      // Run AI import action
-      const { runAction } = require('convex/react');
-      // Since we can't use useAction in non-hook context, we'll call via the Convex client
-      // This would be handled via a custom hook in production
+      // 3. Call the AI action (runs server-side with GEMINI_API_KEY)
+      const result = await runImport({
+        fileUrl,
+        fileName: selectedFile.name,
+        cardType,
+        deckId: selectedDeckId as any,
+      });
+
+      setGeneratedCount(result.count);
+      setStep('done');
+
       Alert.alert(
-        'Feature Ready',
-        `AI import is configured. ${generatedCount} cards generated from "${selectedFile.name}".\n\nTo enable: Add your GEMINI_API_KEY to Convex environment variables.`,
-        [{ text: 'OK', onPress: () => { setStep('done'); router.back(); } }]
+        '✦ Cards Generated!',
+        `${result.count} flashcards were created from "${selectedFile.name}".`,
+        [{ text: 'View Deck', onPress: () => { router.back(); } }]
       );
     } catch (err: any) {
-      Alert.alert('Import failed', err?.message ?? 'Something went wrong.');
+      const msg = err?.message ?? 'Something went wrong.';
+      Alert.alert('Import failed', msg.includes('AI service not configured')
+        ? 'Gemini API key is not configured. Please add GEMINI_API_KEY to your Convex environment variables.'
+        : msg
+      );
       setStep('configure');
     } finally {
       setLoading(false);

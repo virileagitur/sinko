@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
+  Modal, KeyboardAvoidingView, Platform, Alert, Pressable,
 } from 'react-native';
-import { useLocalSearchParams, router, useNavigation } from 'expo-router';
+import { useLocalSearchParams, router } from 'expo-router';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { Colors, Typography, Spacing, Radius } from '../../constants/theme';
-import { Avatar, Button, Divider } from '../../components/ui';
+import { Button } from '../../components/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,11 +19,70 @@ export default function CourseDetailScreen() {
   const decks = useQuery(api.decks.listByCourse, { courseId: courseId as any });
   const forumPosts = useQuery(api.forum.listByCourse, { courseId: courseId as any });
   const groups = useQuery(api.groups.listByCourse, { courseId: courseId as any });
+  const createPost = useMutation(api.forum.createPost);
   const createGroup = useMutation(api.groups.create);
   const joinGroup = useMutation(api.groups.join);
-  const createDeck = useMutation(api.decks.create);
 
   const [activeTab, setActiveTab] = useState<Tab>((initialTab as Tab) ?? 'decks');
+
+  // Forum compose modal state
+  const [showPostModal, setShowPostModal] = useState(false);
+  const [postTitle, setPostTitle] = useState('');
+  const [postContent, setPostContent] = useState('');
+  const [postLoading, setPostLoading] = useState(false);
+
+  // Group create modal state
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupDesc, setGroupDesc] = useState('');
+  const [groupPrivate, setGroupPrivate] = useState(false);
+  const [groupLoading, setGroupLoading] = useState(false);
+
+  const handleCreatePost = async () => {
+    if (!postTitle.trim() || !postContent.trim()) {
+      Alert.alert('Required', 'Please add a title and content.');
+      return;
+    }
+    setPostLoading(true);
+    try {
+      await createPost({
+        courseId: courseId as any,
+        title: postTitle.trim(),
+        content: postContent.trim(),
+      });
+      setPostTitle('');
+      setPostContent('');
+      setShowPostModal(false);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Could not create post.');
+    } finally {
+      setPostLoading(false);
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    if (!groupName.trim()) {
+      Alert.alert('Required', 'Please enter a group name.');
+      return;
+    }
+    setGroupLoading(true);
+    try {
+      await createGroup({
+        courseId: courseId as any,
+        name: groupName.trim(),
+        description: groupDesc.trim() || undefined,
+        isPrivate: groupPrivate,
+      });
+      setGroupName('');
+      setGroupDesc('');
+      setGroupPrivate(false);
+      setShowGroupModal(false);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Could not create group.');
+    } finally {
+      setGroupLoading(false);
+    }
+  };
 
   if (!course) {
     return (
@@ -110,10 +170,7 @@ export default function CourseDetailScreen() {
         {/* ─── FORUM ─── */}
         {activeTab === 'forum' && (
           <View style={styles.section}>
-            <TouchableOpacity
-              style={styles.createBtn}
-              onPress={() => Alert.alert('Post', 'Forum post creation — tap to write')}
-            >
+            <TouchableOpacity style={styles.createBtn} onPress={() => setShowPostModal(true)}>
               <Ionicons name="create-outline" size={20} color={Colors.azure} />
               <Text style={styles.createBtnText}>Start a discussion</Text>
             </TouchableOpacity>
@@ -164,19 +221,7 @@ export default function CourseDetailScreen() {
         {/* ─── GROUPS ─── */}
         {activeTab === 'groups' && (
           <View style={styles.section}>
-            <TouchableOpacity
-              style={styles.createBtn}
-              onPress={() =>
-                Alert.alert('Create Group', 'Enter group name', [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Create', onPress: async () => {
-                      await createGroup({ courseId: courseId as any, name: 'New Study Group', isPrivate: false });
-                    }
-                  }
-                ])
-              }
-            >
+            <TouchableOpacity style={styles.createBtn} onPress={() => setShowGroupModal(true)}>
               <Ionicons name="add" size={20} color={Colors.azure} />
               <Text style={styles.createBtnText}>Create a Study Group</Text>
             </TouchableOpacity>
@@ -219,140 +264,175 @@ export default function CourseDetailScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* ─── FORUM POST MODAL ─── */}
+      <Modal visible={showPostModal} animationType="slide" presentationStyle="pageSheet">
+        <KeyboardAvoidingView style={{ flex: 1, backgroundColor: Colors.white }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setShowPostModal(false)}>
+              <Text style={styles.modalCancel}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>New Discussion</Text>
+            <TouchableOpacity onPress={handleCreatePost} disabled={postLoading}>
+              <Text style={[styles.modalPost, postLoading && { opacity: 0.5 }]}>Post</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+            <TextInput
+              style={styles.modalTitleInput}
+              placeholder="Title"
+              placeholderTextColor={Colors.textLight}
+              value={postTitle}
+              onChangeText={setPostTitle}
+              maxLength={120}
+            />
+            <View style={styles.modalDivider} />
+            <TextInput
+              style={styles.modalBodyInput}
+              placeholder="What do you want to discuss?"
+              placeholderTextColor={Colors.textLight}
+              value={postContent}
+              onChangeText={setPostContent}
+              multiline
+              textAlignVertical="top"
+              autoFocus
+            />
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ─── GROUP CREATE MODAL ─── */}
+      <Modal visible={showGroupModal} animationType="slide" presentationStyle="formSheet">
+        <KeyboardAvoidingView style={{ flex: 1, backgroundColor: Colors.white }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setShowGroupModal(false)}>
+              <Text style={styles.modalCancel}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>New Study Group</Text>
+            <TouchableOpacity onPress={handleCreateGroup} disabled={groupLoading}>
+              <Text style={[styles.modalPost, groupLoading && { opacity: 0.5 }]}>Create</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={{ flex: 1, padding: Spacing.md }} keyboardShouldPersistTaps="handled">
+            <Text style={styles.fieldLabel}>Group Name *</Text>
+            <TextInput
+              style={styles.fieldInput}
+              placeholder="e.g. Midterm Study Crew"
+              placeholderTextColor={Colors.textLight}
+              value={groupName}
+              onChangeText={setGroupName}
+              maxLength={60}
+              autoFocus
+            />
+            <Text style={styles.fieldLabel}>Description (optional)</Text>
+            <TextInput
+              style={[styles.fieldInput, { minHeight: 80 }]}
+              placeholder="What will this group study?"
+              placeholderTextColor={Colors.textLight}
+              value={groupDesc}
+              onChangeText={setGroupDesc}
+              multiline
+              textAlignVertical="top"
+            />
+            <Pressable
+              style={styles.privacyRow}
+              onPress={() => setGroupPrivate((p) => !p)}
+            >
+              <View style={[styles.checkbox, groupPrivate && styles.checkboxActive]}>
+                {groupPrivate && <Ionicons name="checkmark" size={14} color={Colors.white} />}
+              </View>
+              <View>
+                <Text style={styles.privacyLabel}>Private Group</Text>
+                <Text style={styles.privacyHint}>Only members you invite can join</Text>
+              </View>
+            </Pressable>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   courseHeader: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    padding: Spacing.md,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    alignItems: 'center',
+    flexDirection: 'row', gap: Spacing.md, padding: Spacing.md,
+    backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.border, alignItems: 'center',
   },
-  courseIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: Radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  courseIconWrap: { width: 64, height: 64, borderRadius: Radius.lg, alignItems: 'center', justifyContent: 'center' },
   courseName: { fontSize: 18, fontWeight: '700', color: Colors.text },
   courseDept: { ...Typography.caption, color: Colors.azure, marginTop: 2 },
   courseDesc: { ...Typography.bodySmall, color: Colors.textMuted, marginTop: 4, lineHeight: 18 },
-  tabRow: {
-    flexDirection: 'row',
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  tabActive: {
-    borderBottomWidth: 2,
-    borderBottomColor: Colors.azure,
-  },
+  tabRow: { flexDirection: 'row', backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  tab: { flex: 1, paddingVertical: 14, alignItems: 'center' },
+  tabActive: { borderBottomWidth: 2, borderBottomColor: Colors.azure },
   tabText: { fontSize: 14, fontWeight: '600', color: Colors.textMuted },
   tabTextActive: { color: Colors.azure },
   content: { flex: 1 },
   section: { padding: Spacing.md, gap: Spacing.sm },
   createBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderColor: Colors.azure,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    backgroundColor: Colors.azureLight,
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    borderWidth: 1.5, borderStyle: 'dashed', borderColor: Colors.azure,
+    borderRadius: Radius.lg, padding: Spacing.md, backgroundColor: Colors.azureLight,
   },
   createBtnText: { color: Colors.azure, fontWeight: '600', fontSize: 14 },
   deckCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: Spacing.md,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: Colors.white, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, padding: Spacing.md,
   },
   deckCardLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flex: 1 },
   deckTitle: { fontSize: 14, fontWeight: '600', color: Colors.text },
   deckMeta: { ...Typography.caption, color: Colors.textMuted },
-  studyBtn: {
-    backgroundColor: Colors.azureLight,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: Radius.full,
-  },
+  studyBtn: { backgroundColor: Colors.azureLight, paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.full },
   studyBtnText: { color: Colors.azure, fontSize: 13, fontWeight: '600' },
-  postCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: Spacing.md,
-  },
-  pinnedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 4,
-  },
+  postCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, padding: Spacing.md },
+  pinnedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
   pinnedText: { fontSize: 11, color: Colors.azure, fontWeight: '600' },
   postTitle: { fontSize: 15, fontWeight: '600', color: Colors.text, marginBottom: 4 },
   postContent: { ...Typography.bodySmall, color: Colors.textMuted, lineHeight: 18 },
-  postMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: Spacing.sm,
-  },
+  postMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: Spacing.sm },
   reactionRow: { flexDirection: 'row', gap: Spacing.sm },
   reactionItem: { fontSize: 12, color: Colors.textMuted },
-  attachBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: Spacing.sm,
-  },
+  attachBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: Spacing.sm },
   attachText: { ...Typography.caption, color: Colors.textMuted },
   groupCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: Spacing.md,
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    backgroundColor: Colors.white, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, padding: Spacing.md,
   },
-  groupAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  groupAvatar: { width: 44, height: 44, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
   groupName: { fontSize: 14, fontWeight: '600', color: Colors.text },
   groupMeta: { ...Typography.caption, color: Colors.textMuted, marginTop: 2 },
-  joinBtn: {
-    backgroundColor: Colors.azure,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: Radius.full,
-  },
+  joinBtn: { backgroundColor: Colors.azure, paddingHorizontal: 14, paddingVertical: 7, borderRadius: Radius.full },
   joinBtnText: { color: Colors.white, fontSize: 13, fontWeight: '600' },
-  empty: {
-    padding: Spacing.xl,
-    alignItems: 'center',
+  empty: { padding: Spacing.xl, alignItems: 'center' },
+  // Modal styles
+  modalHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    padding: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.border,
   },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: Colors.text },
+  modalCancel: { fontSize: 15, color: Colors.textMuted },
+  modalPost: { fontSize: 15, fontWeight: '700', color: Colors.azure },
+  modalTitleInput: {
+    fontSize: 20, fontWeight: '700', color: Colors.text,
+    padding: Spacing.md, paddingBottom: Spacing.sm,
+  },
+  modalDivider: { height: 1, backgroundColor: Colors.border, marginHorizontal: Spacing.md },
+  modalBodyInput: {
+    fontSize: 16, color: Colors.text, padding: Spacing.md,
+    minHeight: 200, lineHeight: 24,
+  },
+  fieldLabel: { fontSize: 13, fontWeight: '600', color: Colors.textMuted, marginBottom: 6, marginTop: Spacing.md },
+  fieldInput: {
+    backgroundColor: Colors.borderLight, borderRadius: Radius.md,
+    padding: Spacing.md, fontSize: 15, color: Colors.text,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  privacyRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginTop: Spacing.lg },
+  checkbox: {
+    width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: Colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  checkboxActive: { backgroundColor: Colors.azure, borderColor: Colors.azure },
+  privacyLabel: { fontSize: 15, fontWeight: '600', color: Colors.text },
+  privacyHint: { fontSize: 12, color: Colors.textMuted, marginTop: 1 },
 });
