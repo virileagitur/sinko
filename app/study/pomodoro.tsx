@@ -1,391 +1,335 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Animated, Vibration
+  View, Text, StyleSheet, TouchableOpacity, Modal, Switch,
+  AppState, AppStateStatus, Vibration, Alert,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../convex/_generated/api';
-import { Id } from '../../convex/_generated/dataModel';
-import { Colors, Spacing, Radius } from '../../constants/theme';
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Circle, Line, G, Text as SvgText } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Audio } from 'expo-av';
+import { useTheme } from '../../context/ThemeContext';
 
-const WORK_MINUTES = 25;
-const BREAK_MINUTES = 5;
-const LONG_BREAK_MINUTES = 15;
+const WORK_DURATION  = 25 * 60; // seconds
+const SHORT_BREAK    = 5  * 60;
+const LONG_BREAK     = 15 * 60;
 
-type Phase = 'work' | 'break' | 'longBreak';
+type Phase = 'work' | 'short_break' | 'long_break';
+
+function formatTime(sec: number) {
+  const m = Math.floor(sec / 60).toString().padStart(2, '0');
+  const s = (sec % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
 
 export default function PomodoroScreen() {
-  const { deckId } = useLocalSearchParams<{ deckId?: string }>();
-  const deck = useQuery(
-    api.decks.getById,
-    deckId ? { deckId: deckId as Id<'decks'> } : 'skip'
-  );
-  const startSession = useMutation(api.study.startSession);
-  const endSession = useMutation(api.study.endSession);
+  const { colors } = useTheme();
 
-  const [phase, setPhase] = useState<Phase>('work');
-  const [timeLeft, setTimeLeft] = useState(WORK_MINUTES * 60);
-  const [isRunning, setIsRunning] = useState(false);
-  const [sessionCount, setSessionCount] = useState(0);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [totalPomodoros, setTotalPomodoros] = useState(0);
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const handAnim = useRef(new Animated.Value(0)).current;
+  // Timer state
+  const [phase, setPhase]           = useState<Phase>('work');
+  const [timeLeft, setTimeLeft]     = useState(WORK_DURATION);
+  const [isRunning, setIsRunning]   = useState(false);
+  const [session, setSession]       = useState(1);         // work session counter
+  const [beepEnabled, setBeepEnabled] = useState(true);
+  const [showBreakModal, setShowBreakModal] = useState(false);
 
-  const phaseDuration = {
-    work: WORK_MINUTES * 60,
-    break: BREAK_MINUTES * 60,
-    longBreak: LONG_BREAK_MINUTES * 60,
-  };
+  // Background timer: record the timestamp when we last ticked
+  const lastTickRef    = useRef<number>(Date.now());
+  const soundRef       = useRef<Audio.Sound | null>(null);
+  const appStateRef    = useRef<AppStateStatus>('active');
+  const intervalRef    = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const phaseLabels = {
-    work: 'Focus Time',
-    break: 'Short Break',
-    longBreak: 'Long Break',
-  };
+  // ── Load beep sound on mount ──────────────────────────────────────────────
+  useEffect(() => {
+    let mounted = true;
+    Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
+    Audio.Sound.createAsync(
+      // Use a bundled chime or fall back gracefully
+      require('../../assets/sounds/beep.mp3'),
+    )
+      .then(({ sound }) => { if (mounted) soundRef.current = sound; })
+      .catch(() => {}); // If file missing, just skip
 
-  const phaseColors = {
-    work: '#C0392B',
-    break: Colors.success,
-    longBreak: Colors.azure,
-  };
+    return () => {
+      mounted = false;
+      soundRef.current?.unloadAsync().catch(() => {});
+    };
+  }, []);
 
-  // Seconds to clock angles
-  const totalSecs = phaseDuration[phase];
-  const elapsed = totalSecs - timeLeft;
-  const progress = elapsed / totalSecs; // 0 to 1
-  const minuteAngle = (progress * 360) % 360;
-  const secondAngle = ((totalSecs - timeLeft) % 60) * 6; // 6 deg per second
+  // ── AppState listener — compensate for background time ───────────────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next === 'active' && appStateRef.current !== 'active' && isRunning) {
+        // App came to foreground — calculate elapsed
+        const elapsed = Math.floor((Date.now() - lastTickRef.current) / 1000);
+        setTimeLeft((prev) => Math.max(0, prev - elapsed));
+      }
+      if (next !== 'active') {
+        lastTickRef.current = Date.now();
+      }
+      appStateRef.current = next;
+    });
+    return () => sub.remove();
+  }, [isRunning]);
 
-  const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60).toString().padStart(2, '0');
-    const s = (secs % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  };
-
+  // ── Core countdown tick ───────────────────────────────────────────────────
   useEffect(() => {
     if (isRunning) {
-      tickRef.current = setInterval(() => {
+      lastTickRef.current = Date.now();
+      intervalRef.current = setInterval(() => {
         setTimeLeft((prev) => {
           if (prev <= 1) {
-            clearInterval(tickRef.current!);
-            Vibration.vibrate([0, 500, 200, 500]);
-            handlePhaseComplete();
+            clearInterval(intervalRef.current!);
+            handlePhaseEnd();
             return 0;
           }
+          lastTickRef.current = Date.now();
           return prev - 1;
         });
       }, 1000);
     } else {
-      if (tickRef.current) clearInterval(tickRef.current);
+      if (intervalRef.current) clearInterval(intervalRef.current);
     }
-    return () => { if (tickRef.current) clearInterval(tickRef.current); };
-  }, [isRunning]);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [isRunning, phase]);
 
-  const handlePhaseComplete = () => {
+  // ── Phase completed ───────────────────────────────────────────────────────
+  const handlePhaseEnd = useCallback(async () => {
     setIsRunning(false);
+    Vibration.vibrate([0, 400, 200, 400]);
+
+    if (beepEnabled && soundRef.current) {
+      try {
+        await soundRef.current.replayAsync();
+      } catch (_) {}
+    }
+
     if (phase === 'work') {
-      const newCount = sessionCount + 1;
-      setSessionCount(newCount);
-      setTotalPomodoros((p) => p + 1);
-      if (newCount % 4 === 0) {
-        setPhase('longBreak');
-        setTimeLeft(LONG_BREAK_MINUTES * 60);
-      } else {
-        setPhase('break');
-        setTimeLeft(BREAK_MINUTES * 60);
-      }
+      const newSession = session + 1;
+      setSession(newSession);
+      const nextPhase: Phase = newSession % 4 === 0 ? 'long_break' : 'short_break';
+      setPhase(nextPhase);
+      setTimeLeft(nextPhase === 'long_break' ? LONG_BREAK : SHORT_BREAK);
+      setShowBreakModal(true);
     } else {
       setPhase('work');
-      setTimeLeft(WORK_MINUTES * 60);
+      setTimeLeft(WORK_DURATION);
     }
+  }, [phase, session, beepEnabled]);
+
+  const startBreak = () => {
+    setShowBreakModal(false);
+    setIsRunning(true);
   };
 
-  const handleStartStop = async () => {
-    if (!isRunning && !sessionId && deckId) {
-      const id = await startSession({ deckId: deckId as any, mode: 'pomodoro' });
-      setSessionId(id);
-    }
-    setIsRunning(!isRunning);
+  const skipBreak = () => {
+    setShowBreakModal(false);
+    setPhase('work');
+    setTimeLeft(WORK_DURATION);
   };
 
-  const handleReset = () => {
+  const resetTimer = () => {
     setIsRunning(false);
-    setTimeLeft(phaseDuration[phase]);
+    setPhase('work');
+    setTimeLeft(WORK_DURATION);
+    setSession(1);
   };
 
-  const handleClose = async () => {
-    setIsRunning(false);
-    if (sessionId) {
-      await endSession({ sessionId: sessionId as any, cardsReviewed: 0, pomodoroSessions: totalPomodoros });
-    }
-    router.back();
-  };
+  // ── Styles ────────────────────────────────────────────────────────────────
+  const phaseColor = phase === 'work' ? '#DC2626' : '#7C3AED';
+  const phaseName  = phase === 'work'
+    ? `Focus Session ${session}`
+    : phase === 'long_break' ? 'Long Break ☕' : 'Short Break 🌿';
 
-  // Clock face rendering with SVG
-  const R = 100;
-  const cx = 110;
-  const cy = 110;
-
-  const toRad = (deg: number) => (deg - 90) * (Math.PI / 180);
-
-  const handEnd = (angle: number, length: number) => ({
-    x: cx + length * Math.cos(toRad(angle)),
-    y: cy + length * Math.sin(toRad(angle)),
-  });
-
-  const minuteHand = handEnd(minuteAngle, 70);
-  const secondHand = handEnd(secondAngle, 85);
-
-  const color = phaseColors[phase];
+  const progress = 1 - timeLeft / (
+    phase === 'work' ? WORK_DURATION :
+    phase === 'long_break' ? LONG_BREAK : SHORT_BREAK
+  );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: '#FFF8F0' }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
-          <Ionicons name="close" size={24} color="#6B4C3B" />
+        <TouchableOpacity onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Pomodoro Timer</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      {deck && (
-        <Text style={styles.deckLabel}>📚 {deck.title}</Text>
-      )}
-
-      {/* Phase indicator */}
-      <View style={styles.phaseRow}>
-        {(['work', 'break', 'longBreak'] as Phase[]).map((p) => (
-          <TouchableOpacity
-            key={p}
-            style={[styles.phaseChip, phase === p && { backgroundColor: phaseColors[p] }]}
-            onPress={() => {
-              if (!isRunning) {
-                setPhase(p);
-                setTimeLeft(phaseDuration[p]);
-              }
-            }}
-          >
-            <Text style={[styles.phaseChipText, phase === p && { color: Colors.white }]}>
-              {phaseLabels[p]}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Analog Clock */}
-      <View style={styles.clockWrapper}>
-        <Svg width={220} height={220} viewBox="0 0 220 220">
-          {/* Clock face */}
-          <Circle cx={cx} cy={cy} r={R} fill="#FFF8F0" stroke="#D4B896" strokeWidth={3} />
-
-          {/* Hour marks */}
-          {Array.from({ length: 12 }).map((_, i) => {
-            const angle = i * 30;
-            const outer = handEnd(angle, 93);
-            const inner = handEnd(angle, i % 3 === 0 ? 78 : 86);
-            return (
-              <Line
-                key={i}
-                x1={inner.x}
-                y1={inner.y}
-                x2={outer.x}
-                y2={outer.y}
-                stroke="#A0856B"
-                strokeWidth={i % 3 === 0 ? 2.5 : 1}
-              />
-            );
-          })}
-
-          {/* Progress arc */}
-          <Circle
-            cx={cx}
-            cy={cy}
-            r={85}
-            fill="none"
-            stroke={color}
-            strokeWidth={4}
-            strokeOpacity={0.25}
-          />
-
-          {/* Minute hand (tracks overall progress) */}
-          <Line
-            x1={cx}
-            y1={cy}
-            x2={minuteHand.x}
-            y2={minuteHand.y}
-            stroke={color}
-            strokeWidth={3.5}
-            strokeLinecap="round"
-          />
-
-          {/* Second hand */}
-          <Line
-            x1={cx}
-            y1={cy}
-            x2={secondHand.x}
-            y2={secondHand.y}
-            stroke="#E74C3C"
-            strokeWidth={1.5}
-            strokeLinecap="round"
-          />
-
-          {/* Center dot */}
-          <Circle cx={cx} cy={cy} r={5} fill={color} />
-
-          {/* Timer digits in center */}
-          <SvgText
-            x={cx}
-            y={cy + 38}
-            textAnchor="middle"
-            fontSize={13}
-            fontWeight="500"
-            fill="#8B6751"
-          >
-            {formatTime(timeLeft)}
-          </SvgText>
-        </Svg>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Pomodoro</Text>
+        <TouchableOpacity onPress={resetTimer}>
+          <Ionicons name="refresh" size={22} color={colors.textMuted} />
+        </TouchableOpacity>
       </View>
 
       {/* Phase label */}
-      <Text style={[styles.phaseLabel, { color }]}>{phaseLabels[phase].toUpperCase()}</Text>
-
-      {/* Session counter */}
-      <View style={styles.tomatoRow}>
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Text key={i} style={{ fontSize: 22, opacity: i < (sessionCount % 4) ? 1 : 0.25 }}>
-            🍅
-          </Text>
-        ))}
+      <View style={[styles.phaseLabel, { backgroundColor: phaseColor + '20' }]}>
+        <Text style={[styles.phaseLabelText, { color: phaseColor }]}>{phaseName}</Text>
       </View>
-      <Text style={styles.sessionCount}>
-        {totalPomodoros} pomodoro{totalPomodoros !== 1 ? 's' : ''} completed
-      </Text>
+
+      {/* Circular Timer */}
+      <View style={styles.timerWrap}>
+        <View style={[styles.timerRing, { borderColor: phaseColor + '30' }]}>
+          <View style={[styles.timerFill, { borderColor: phaseColor }]} />
+          <View style={[styles.timerInner, { backgroundColor: colors.white, borderColor: phaseColor + '20' }]}>
+            <Text style={[styles.timerText, { color: phaseColor }]}>{formatTime(timeLeft)}</Text>
+            <Text style={[styles.timerSub, { color: colors.textMuted }]}>
+              {isRunning ? 'Stay focused...' : 'Press play to start'}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Session dots */}
+      <View style={styles.sessionDots}>
+        {[1, 2, 3, 4].map((i) => (
+          <View
+            key={i}
+            style={[
+              styles.dot,
+              { backgroundColor: i < session ? phaseColor : colors.border },
+            ]}
+          />
+        ))}
+        <Text style={[styles.sessionLabel, { color: colors.textMuted }]}>Session {session}/4</Text>
+      </View>
 
       {/* Controls */}
       <View style={styles.controls}>
-        <TouchableOpacity style={styles.resetBtn} onPress={handleReset}>
-          <Ionicons name="refresh" size={22} color="#8B6751" />
+        <TouchableOpacity
+          style={[styles.controlBtn, { backgroundColor: colors.white, borderColor: colors.border }]}
+          onPress={() => {
+            setPhase('work');
+            setTimeLeft(WORK_DURATION);
+            setIsRunning(false);
+          }}
+        >
+          <Ionicons name="play-skip-back" size={20} color={colors.textMuted} />
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.startBtn, { backgroundColor: color }]}
-          onPress={handleStartStop}
-          activeOpacity={0.85}
+          style={[styles.playBtn, { backgroundColor: phaseColor }]}
+          onPress={() => setIsRunning((r) => !r)}
         >
-          <Ionicons name={isRunning ? 'pause' : 'play'} size={32} color={Colors.white} />
+          <Ionicons name={isRunning ? 'pause' : 'play'} size={32} color="#fff" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.resetBtn} onPress={handlePhaseComplete}>
-          <Ionicons name="play-skip-forward" size={22} color="#8B6751" />
+        <TouchableOpacity
+          style={[styles.controlBtn, { backgroundColor: colors.white, borderColor: colors.border }]}
+          onPress={() => setIsRunning(false)}
+        >
+          <Ionicons name="stop" size={20} color={colors.textMuted} />
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.tip}>
-        {phase === 'work'
-          ? '💡 Stay focused. Close all distractions.'
-          : phase === 'break'
-          ? '☕ Take a short walk or stretch!'
-          : '🌿 Great job! Rest well before continuing.'}
-      </Text>
+      {/* Settings bar */}
+      <View style={[styles.settingsBar, { backgroundColor: colors.white, borderColor: colors.border }]}>
+        <Ionicons name={beepEnabled ? 'volume-high-outline' : 'volume-mute-outline'} size={18} color={colors.textMuted} />
+        <Text style={[styles.settingLabel, { color: colors.text }]}>Beep on phase end</Text>
+        <Switch
+          value={beepEnabled}
+          onValueChange={setBeepEnabled}
+          trackColor={{ false: colors.border, true: phaseColor }}
+          thumbColor={colors.white}
+        />
+      </View>
+
+      {/* ── Break Modal ── */}
+      <Modal visible={showBreakModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.white }]}>
+            <Text style={[styles.modalEmoji]}>
+              {phase === 'long_break' ? '☕' : '🌿'}
+            </Text>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              {phase === 'long_break' ? 'Long Break Time!' : 'Short Break Time!'}
+            </Text>
+            <Text style={[styles.modalSub, { color: colors.textMuted }]}>
+              Great work! Take{' '}
+              {phase === 'long_break' ? '15 minutes' : '5 minutes'} to rest.
+            </Text>
+
+            {/* Break countdown display */}
+            <View style={[styles.breakTimer, { backgroundColor: phaseColor + '12' }]}>
+              <Text style={[styles.breakTimerText, { color: phaseColor }]}>
+                {formatTime(timeLeft)}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.modalPrimary, { backgroundColor: phaseColor }]}
+              onPress={startBreak}
+            >
+              <Text style={styles.modalPrimaryText}>Start Break</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalSecondary} onPress={skipBreak}>
+              <Text style={[styles.modalSecondaryText, { color: colors.textMuted }]}>
+                Skip Break — Back to Work
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center' },
+  container: { flex: 1 },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
   },
-  closeBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EDE0D0',
-  },
-  headerTitle: { fontSize: 17, fontWeight: '600', color: '#5C3A1E' },
-  deckLabel: { fontSize: 13, color: '#8B6751', marginBottom: Spacing.sm },
-  phaseRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  phaseChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: Radius.full,
-    backgroundColor: '#EDE0D0',
-  },
-  phaseChipText: { fontSize: 12, fontWeight: '600', color: '#8B6751' },
-  clockWrapper: {
-    width: 220,
-    height: 220,
-    marginVertical: Spacing.md,
-    // Warm shadow
-    shadowColor: '#8B6751',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 8,
-  },
+  headerTitle: { fontSize: 17, fontWeight: '700' },
   phaseLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 2,
-    marginTop: -Spacing.sm,
+    alignSelf: 'center', paddingHorizontal: 16, paddingVertical: 6,
+    borderRadius: 99, marginBottom: 24,
   },
-  tomatoRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: Spacing.md,
+  phaseLabelText: { fontSize: 13, fontWeight: '600' },
+  timerWrap: { alignItems: 'center', marginBottom: 32 },
+  timerRing: {
+    width: 240, height: 240, borderRadius: 120,
+    borderWidth: 12, alignItems: 'center', justifyContent: 'center',
   },
-  sessionCount: {
-    fontSize: 13,
-    color: '#8B6751',
-    marginTop: 4,
-    marginBottom: Spacing.lg,
+  timerFill: { position: 'absolute' },
+  timerInner: {
+    width: 200, height: 200, borderRadius: 100,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1,
   },
-  controls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xl,
+  timerText: { fontSize: 52, fontWeight: '700', fontVariant: ['tabular-nums'] as any },
+  timerSub: { fontSize: 12, marginTop: 4 },
+  sessionDots: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    justifyContent: 'center', marginBottom: 32,
   },
-  resetBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EDE0D0',
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  sessionLabel: { fontSize: 12, marginLeft: 4 },
+  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20, marginBottom: 32 },
+  controlBtn: {
+    width: 52, height: 52, borderRadius: 26,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1,
   },
-  startBtn: {
-    width: 72,
-    height: 72,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 4,
+  playBtn: {
+    width: 76, height: 76, borderRadius: 38,
+    alignItems: 'center', justifyContent: 'center',
   },
-  tip: {
-    fontSize: 13,
-    color: '#8B6751',
-    textAlign: 'center',
-    marginTop: Spacing.xl,
-    paddingHorizontal: Spacing.lg,
+  settingsBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginHorizontal: 20, padding: 14, borderRadius: 14, borderWidth: 1,
   },
+  settingLabel: { flex: 1, fontSize: 14 },
+  // Modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 32 },
+  modalSheet: {
+    width: '100%', borderRadius: 24, padding: 28,
+    alignItems: 'center', gap: 12,
+  },
+  modalEmoji: { fontSize: 48 },
+  modalTitle: { fontSize: 22, fontWeight: '700', textAlign: 'center' },
+  modalSub: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  breakTimer: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 14, marginVertical: 4 },
+  breakTimerText: { fontSize: 36, fontWeight: '700', fontVariant: ['tabular-nums'] as any },
+  modalPrimary: {
+    width: '100%', borderRadius: 14, paddingVertical: 14, alignItems: 'center',
+  },
+  modalPrimaryText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  modalSecondary: { paddingVertical: 8 },
+  modalSecondaryText: { fontSize: 13 },
 });

@@ -42,7 +42,7 @@ export default function AIImportScreen() {
   const { deckId } = useLocalSearchParams<{ deckId?: string }>();
   const importLimit = useQuery(api.ai.checkImportLimit);
   const generateUploadUrl = useMutation(api.storage.generateUploadUrl);
-  const myDecks = useQuery(api.decks.listMine);
+  const myDecks = useQuery(api.decks.listMine, {});
 
   const [selectedDeckId, setSelectedDeckId] = useState<string>(deckId ?? '');
   const [selectedFile, setSelectedFile] = useState<any>(null);

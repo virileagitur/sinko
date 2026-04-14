@@ -55,7 +55,16 @@ export const incrementImportCount = mutation({
   },
 });
 
-// Main AI import action — runs server-side so API key is never exposed
+// Edge-compliant ArrayBuffer to Base64 chunker (prevents 64MB memory limit + Call Stack errors)
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  let chunks = [];
+  let bytes = new Uint8Array(buffer);
+  for (let i = 0; i < bytes.byteLength; i += 8192) {
+    chunks.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 8192) as any));
+  }
+  return btoa(chunks.join(''));
+}
+
 export const importDocument = action({
   args: {
     storageId: v.id("_storage"),
@@ -75,11 +84,9 @@ export const importDocument = action({
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new ConvexError("AI service not configured — add GEMINI_API_KEY to Convex env vars");
 
-    // Resolve storage URL server-side (the only correct way)
     const fileUrl = await ctx.storage.getUrl(storageId);
     if (!fileUrl) throw new ConvexError("File not found in storage");
 
-    // Determine prompt by card type
     const prompts: Record<string, string> = {
       basic:
         "Analyze this document and extract 10-20 key concepts. Return a JSON array with objects containing 'front' (a clear question) and 'back' (concise answer). Format: [{\"front\": \"...\", \"back\": \"...\"}]",
@@ -91,7 +98,6 @@ export const importDocument = action({
         "Extract key visual concepts, processes, diagrams, or structures described in this document. For each, write a 'front' that asks about the visual concept, and a 'back' that describes it in detail including any components or steps. Return JSON: [{\"front\": \"...\", \"back\": \"...\"}]",
     };
 
-    // Fetch the document content to send inline to Gemini
     let fileContent: string;
     let mimeTypeForGemini = "text/plain";
 
@@ -104,23 +110,20 @@ export const importDocument = action({
       if (contentType.includes("pdf")) {
         mimeTypeForGemini = "application/pdf";
         const buffer = await fileRes.arrayBuffer();
-        fileContent = Buffer.from(buffer).toString("base64");
+        fileContent = arrayBufferToBase64(buffer);
       } else if (contentType.startsWith("image/")) {
         mimeTypeForGemini = contentType.split(";")[0];
         const buffer = await fileRes.arrayBuffer();
-        fileContent = Buffer.from(buffer).toString("base64");
+        fileContent = arrayBufferToBase64(buffer);
       } else {
-        // Plain text / JSON / etc
         mimeTypeForGemini = "text/plain";
-        fileContent = await fileRes.text();
-        // For text, encode as base64 too
-        fileContent = Buffer.from(fileContent).toString("base64");
+        const text = await fileRes.text();
+        fileContent = btoa(unescape(encodeURIComponent(text)));
       }
     } catch (err: any) {
       throw new ConvexError(`Could not read document: ${err?.message ?? err}`);
     }
 
-    // Build Gemini request with inline document data
     type GeminiPart =
       | { text: string }
       | { inlineData: { mimeType: string; data: string } };
@@ -130,7 +133,6 @@ export const importDocument = action({
       { inlineData: { mimeType: mimeTypeForGemini, data: fileContent } },
     ];
 
-    // Call Gemini API
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
@@ -150,29 +152,17 @@ export const importDocument = action({
     }
 
     const result = await response.json();
-    const text =
-      result.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+    const text = result.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
 
     let cards: Array<{ front: string; back: string }> = [];
     try {
-      // Parse JSON, handle potential markdown code fences
       const cleaned = text.replace(/```json\n?|\n?```/g, "").trim();
       cards = JSON.parse(cleaned);
     } catch {
       throw new ConvexError("Failed to parse AI response");
     }
 
-    // Bulk create cards in the deck
-    const cardsToCreate = cards.map((c) => ({
-      front: c.front || "",
-      back: c.back || "",
-      type: cardType,
-      tags: ["ai-generated"],
-    }));
-
-    await ctx.runMutation(api.cards.bulkCreate, { deckId, cards: cardsToCreate });
     await ctx.runMutation(api.ai.incrementImportCount, {});
-
     return { count: cards.length, cards };
   },
 });

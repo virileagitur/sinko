@@ -16,12 +16,21 @@ const PLANS = [
     name: 'Free Trial',
     price: '$0',
     period: 'forever',
-    color: Colors.textMuted,
+    color: '#6B7280',
     features: [
       '2 AI document imports per day',
-      'Unlimited manual flashcard creation',
-      'Basic study modes',
-      'Community forum access',
+      'Flashcard & Quiz study modes',
+      'Manual card creation (all types)',
+      'Browse & read community forums',
+      'Access public decks',
+    ],
+    locked: [
+      'Spaced Repetition & Write modes',
+      'Create or join study groups',
+      'Share files in chats (up to 50 MB)',
+      'Custom deck icons & colors',
+      'Deck background images',
+      'Custom card background color',
     ],
   },
   {
@@ -29,14 +38,20 @@ const PLANS = [
     name: 'Starter',
     price: '$1.99',
     period: '/month',
-    color: Colors.azure,
+    color: '#2563EB',
     popular: false,
     features: [
       '10 AI document imports per day',
-      'All study modes',
-      'Create & join groups',
-      'Share documents in forums',
-      'Priority AI processing',
+      'All 6 study modes unlocked ✓',
+      'Create & join study groups ✓',
+      'Share files in chats — up to 50 MB ✓',
+      'Custom deck icon picker ✓',
+      'Custom deck color ✓',
+    ],
+    locked: [
+      'Deck background images',
+      'Custom card background color',
+      'Unlimited AI imports',
     ],
   },
   {
@@ -44,17 +59,20 @@ const PLANS = [
     name: 'Premium',
     price: '$4.99',
     period: '/month',
-    color: Colors.lilyDark,
+    color: '#7C3AED',
     popular: true,
     features: [
       'Unlimited AI document imports ✦',
-      'All Starter features',
-      'AI visual card generation',
-      'Advanced analytics',
+      'Deck background images ✦',
+      'Custom card background color ✦',
+      'Share files in chats — up to 100 MB ✦',
+      'All Starter features included',
       'Early access to new features',
     ],
+    locked: [],
   },
 ];
+
 
 export default function SubscriptionScreen() {
   const profile = useQuery(api.users.getMyProfile);
@@ -163,7 +181,14 @@ export default function SubscriptionScreen() {
                     <Text style={styles.featureText}>{feature}</Text>
                   </View>
                 ))}
+                {(plan as any).locked?.map((feature: string, i: number) => (
+                  <View key={`l${i}`} style={styles.featureRow}>
+                    <Ionicons name="close-circle-outline" size={16} color={Colors.textLight} />
+                    <Text style={[styles.featureText, { color: Colors.textLight }]}>{feature}</Text>
+                  </View>
+                ))}
               </View>
+
 
               {!isFree && !isCurrentPlan && (
                 <TouchableOpacity

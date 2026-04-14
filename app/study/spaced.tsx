@@ -11,7 +11,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SpacedRepScreen() {
   const { deckId } = useLocalSearchParams<{ deckId: string }>();
-  const dueCards = useQuery(api.cards.getDueCards, { deckId: deckId as any });
+
+  // "all" is a placeholder from the home screen due-count tap — not a real deck ID
+  const isValidDeckId = deckId && deckId !== 'all';
+
+  const dueCards = useQuery(
+    api.cards.getDueCards,
+    isValidDeckId ? { deckId: deckId as any } : 'skip'
+  );
   const reviewCard = useMutation(api.cards.reviewCard);
   const startSession = useMutation(api.study.startSession);
   const endSession = useMutation(api.study.endSession);
@@ -23,7 +30,7 @@ export default function SpacedRepScreen() {
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   React.useEffect(() => {
-    if (deckId) {
+    if (isValidDeckId) {
       startSession({ deckId: deckId as any, mode: 'spaced' }).then(setSessionId);
     }
   }, []);
@@ -48,6 +55,28 @@ export default function SpacedRepScreen() {
     { label: 'Good', quality: 2, color: Colors.good, icon: '🙂' },
     { label: 'Easy', quality: 3, color: Colors.easy, icon: '😄' },
   ];
+
+  if (!isValidDeckId) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="close" size={24} color={Colors.text} />
+        </TouchableOpacity>
+        <View style={styles.center}>
+          <Text style={{ fontSize: 64 }}>📚</Text>
+          <Text style={[Typography.h3, { textAlign: 'center', marginTop: Spacing.lg }]}>
+            Pick a Deck
+          </Text>
+          <Text style={[Typography.bodySmall, { color: Colors.textMuted, textAlign: 'center', marginTop: Spacing.sm }]}>
+            Open a specific deck and tap "Spaced Rep" to review your due cards.
+          </Text>
+          <TouchableOpacity style={styles.doneBtn} onPress={() => router.back()}>
+            <Text style={{ color: Colors.white, fontWeight: '600' }}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (!dueCards || dueCards.length === 0) {
     return (

@@ -153,3 +153,72 @@ export const isMember = query({
     return !!m;
   },
 });
+export const updateGroup = mutation({
+  args: {
+    groupId: v.id("groups"),
+    name: v.optional(v.string()),
+    description: v.optional(v.string()),
+    isPrivate: v.optional(v.boolean()),
+    avatarUrl: v.optional(v.string()),
+    avatarStorageId: v.optional(v.id("_storage")),
+    bannerUrl: v.optional(v.string()),
+    bannerStorageId: v.optional(v.id("_storage")),
+  },
+  handler: async (ctx, { groupId, ...updates }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new ConvexError("Not authenticated");
+    const membership = await ctx.db.query("groupMembers")
+      .withIndex("by_group_user", q => q.eq("groupId", groupId).eq("userId", userId)).first();
+    if (!membership || membership.role !== "admin") throw new ConvexError("Admin only");
+    const patch: Record<string, any> = {};
+    if (updates.name !== undefined) patch.name = updates.name;
+    if (updates.description !== undefined) patch.description = updates.description;
+    if (updates.isPrivate !== undefined) patch.isPrivate = updates.isPrivate;
+    if (updates.avatarUrl !== undefined) patch.avatarUrl = updates.avatarUrl;
+    if (updates.avatarStorageId !== undefined) patch.avatarStorageId = updates.avatarStorageId;
+    if (updates.bannerUrl !== undefined) patch.bannerUrl = updates.bannerUrl;
+    if (updates.bannerStorageId !== undefined) patch.bannerStorageId = updates.bannerStorageId;
+    await ctx.db.patch(groupId, patch);
+  },
+});
+
+export const sendMessage = mutation({
+  args: {
+    groupId: v.id("groups"),
+    content: v.string(),
+  },
+  handler: async (ctx, { groupId, content }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new ConvexError("Not authenticated");
+    const membership = await ctx.db.query("groupMembers")
+      .withIndex("by_group_user", q => q.eq("groupId", groupId).eq("userId", userId)).first();
+    if (!membership) throw new ConvexError("Not a member");
+    return ctx.db.insert("groupMessages", { groupId, authorId: userId, content });
+  },
+});
+
+export const listMessages = query({
+  args: { groupId: v.id("groups") },
+  handler: async (ctx, { groupId }) => {
+    const messages = await ctx.db.query("groupMessages")
+      .withIndex("by_group", q => q.eq("groupId", groupId))
+      .order("asc")
+      .collect();
+    return Promise.all(messages.map(async (msg) => {
+      const profile = await ctx.db.query("userProfiles")
+        .withIndex("by_userId", q => q.eq("userId", msg.authorId)).first();
+      return { ...msg, authorName: profile?.name ?? "Student", authorAvatar: profile?.avatarUrl };
+    }));
+  },
+});
+
+export const getMyRole = query({
+  args: { groupId: v.id("groups") },
+  handler: async (ctx, { groupId }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    const m = await ctx.db.query("groupMembers")
+      .withIndex("by_group_user", q => q.eq("groupId", groupId).eq("userId", userId)).first();
+    return m?.role ?? null;
+  },
+});

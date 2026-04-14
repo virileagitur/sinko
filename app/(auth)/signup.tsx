@@ -45,7 +45,7 @@ export default function SignupScreen() {
       } else {
         setGoogleLoading(false);
       }
-    } else if (response?.type !== 'success') {
+    } else if ((response as any)?.type !== 'success') {
       setGoogleLoading(false);
     }
   }, [response]);

@@ -4,7 +4,7 @@ import {
   ActivityIndicator, Alert
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
-import { useMutation, useAction } from 'convex/react';
+import { useMutation, useAction, useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { Colors, Typography, Spacing, Radius } from '../../constants/theme';
 import { Button } from '../../components/ui';
@@ -27,7 +27,11 @@ export default function AIPreviewScreen() {
   }>();
 
   const importDocument = useAction(api.ai.importDocument);
-  const getUrl = useMutation(api.storage.getUrl);
+  // storage.getUrl is a query — resolve before calling importDocument
+  const fileUrl = useQuery(
+    api.storage.getUrl,
+    storageId ? { storageId: storageId as Id<'_storage'> } : 'skip'
+  );
 
   const [cards, setCards] = useState<PreviewCard[]>([]);
   const [loading, setLoading] = useState(false);
@@ -36,19 +40,18 @@ export default function AIPreviewScreen() {
   const createBulk = useMutation(api.cards.bulkCreate);
 
   React.useEffect(() => {
-    if (storageId && deckId) {
+    if (storageId && deckId && fileUrl && !generated && !loading) {
       generateCards();
     }
-  }, []);
+  }, [fileUrl]);
 
   const generateCards = async () => {
     setLoading(true);
     try {
-      const fileUrl = await getUrl({ storageId: storageId as Id<'_storage'> });
       if (!fileUrl) throw new Error('Could not get file URL');
 
       const result = await importDocument({
-        fileUrl,
+        storageId: storageId as Id<'_storage'>,
         fileName: fileName ?? 'document',
         cardType: (cardType ?? 'basic') as any,
         deckId: deckId as Id<'decks'>,

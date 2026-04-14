@@ -85,14 +85,16 @@ export const listByCourse = query({
 });
 
 export const listMine = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { includeArchived: v.optional(v.boolean()) },
+  handler: async (ctx, { includeArchived }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) return [];
-    return ctx.db
+    const decks = await ctx.db
       .query("decks")
       .withIndex("by_creator", (q) => q.eq("creatorId", userId))
       .collect();
+    if (includeArchived) return decks;
+    return decks.filter((d) => !d.isArchived);
   },
 });
 
@@ -100,5 +102,44 @@ export const getById = query({
   args: { deckId: v.id("decks") },
   handler: async (ctx, { deckId }) => {
     return ctx.db.get(deckId);
+  },
+});
+
+export const updateMeta = mutation({
+  args: {
+    deckId: v.id("decks"),
+    colorTag: v.optional(v.string()),
+    iconEmoji: v.optional(v.string()),
+    backgroundImageUrl: v.optional(v.string()),
+    backgroundStorageId: v.optional(v.id("_storage")),
+  },
+  handler: async (ctx, { deckId, ...updates }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new ConvexError("Not authenticated");
+    const deck = await ctx.db.get(deckId);
+    if (!deck || deck.creatorId !== userId) throw new ConvexError("Not authorized");
+    await ctx.db.patch(deckId, updates);
+  },
+});
+
+export const archiveDeck = mutation({
+  args: { deckId: v.id("decks") },
+  handler: async (ctx, { deckId }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new ConvexError("Not authenticated");
+    const deck = await ctx.db.get(deckId);
+    if (!deck || deck.creatorId !== userId) throw new ConvexError("Not authorized");
+    await ctx.db.patch(deckId, { isArchived: true });
+  },
+});
+
+export const unarchiveDeck = mutation({
+  args: { deckId: v.id("decks") },
+  handler: async (ctx, { deckId }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new ConvexError("Not authenticated");
+    const deck = await ctx.db.get(deckId);
+    if (!deck || deck.creatorId !== userId) throw new ConvexError("Not authorized");
+    await ctx.db.patch(deckId, { isArchived: false });
   },
 });

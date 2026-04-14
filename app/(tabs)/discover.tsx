@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Modal,
-  KeyboardAvoidingView, Platform, Pressable,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput,
+  Pressable,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
-import { Colors, Typography, Spacing, Radius } from '../../constants/theme';
+import { Spacing, Radius, Typography, Colors } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme } from '../../context/ThemeContext';
 
 export default function DiscoverScreen() {
+  const { colors } = useTheme();
   const [search, setSearch] = useState('');
   const [department, setDepartment] = useState<string | undefined>(undefined);
   const seedCourses = useMutation(api.courses.seedCourses);
@@ -18,7 +20,6 @@ export default function DiscoverScreen() {
   const courses = useQuery(api.courses.listAll, { search: search || undefined, department });
   const departments = useQuery(api.courses.getDepartments);
 
-  // Seed on first load if empty
   React.useEffect(() => {
     if (courses && courses.length === 0) {
       seedCourses();
@@ -27,63 +28,62 @@ export default function DiscoverScreen() {
 
   const renderCourse = ({ item }: { item: any }) => (
     <Pressable
-      style={({ pressed }) => [styles.courseCard, pressed && { opacity: 0.8 }]}
+      style={({ pressed }) => [styles.courseCard, { backgroundColor: colors.white, borderColor: colors.border }, pressed && { opacity: 0.8 }]}
       onPress={() => router.push(`/course/${item._id}`)}
     >
       <View style={[styles.courseIcon, { backgroundColor: item.color + '18' }]}>
         <Text style={{ fontSize: 28 }}>{item.icon}</Text>
       </View>
       <View style={styles.courseInfo}>
-        <Text style={styles.courseName}>{item.name}</Text>
-        <Text style={styles.courseDepth}>{item.department}</Text>
-        <Text style={styles.courseDesc} numberOfLines={1}>{item.description}</Text>
+        <Text style={[styles.courseName, { color: colors.text }]}>{item.name}</Text>
+        <Text style={[styles.courseDepth, { color: colors.azure }]}>{item.department}</Text>
+        <Text style={[styles.courseDesc, { color: colors.textMuted }]} numberOfLines={1}>{item.description}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={Colors.textLight} />
+      <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
     </Pressable>
   );
 
-  // Fix #2: use ListHeaderComponent so filter row scrolls with the list — no overlap
   const ListHeader = () => (
     <>
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchBar}>
-          <Ionicons name="search-outline" size={18} color={Colors.textMuted} />
+      <View style={[styles.searchContainer, { backgroundColor: colors.white, borderBottomColor: colors.border }]}>
+        <View style={[styles.searchBar, { backgroundColor: colors.borderLight }]}>
+          <Ionicons name="search-outline" size={18} color={colors.textMuted} />
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: colors.text }]}
             placeholder="Search courses, departments..."
-            placeholderTextColor={Colors.textLight}
+            placeholderTextColor={colors.textLight}
             value={search}
             onChangeText={setSearch}
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => setSearch('')}>
-              <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
             </TouchableOpacity>
           )}
         </View>
       </View>
 
-      {/* Department Filter — inside the list so it scrolls with content */}
       {departments && departments.length > 0 && (
         <FlatList
           horizontal
           data={[{ _id: undefined, name: 'All' }, ...departments.map((d) => ({ _id: d, name: d }))]}
           keyExtractor={(item) => item.name}
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterList}
+          contentContainerStyle={[styles.filterList, { backgroundColor: colors.white, borderBottomColor: colors.border }]}
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[
                 styles.filterChip,
-                (item._id === department || (item._id === undefined && !department)) && styles.filterChipActive,
+                { backgroundColor: colors.borderLight },
+                (item._id === department || (item._id === undefined && !department)) && { backgroundColor: colors.azure },
               ]}
               onPress={() => setDepartment(item._id as string | undefined)}
             >
               <Text
                 style={[
                   styles.filterChipText,
-                  (item._id === department || (item._id === undefined && !department)) && styles.filterChipTextActive,
+                  { color: colors.textMuted },
+                  (item._id === department || (item._id === undefined && !department)) && { color: '#fff' },
                 ]}
               >
                 {item.name}
@@ -96,7 +96,7 @@ export default function DiscoverScreen() {
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bg }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
       <FlatList
         data={courses}
         keyExtractor={(item) => item._id}
@@ -107,7 +107,7 @@ export default function DiscoverScreen() {
         ListEmptyComponent={() => (
           <View style={styles.empty}>
             <Text style={{ fontSize: 40, textAlign: 'center' }}>🎓</Text>
-            <Text style={[Typography.h4, { textAlign: 'center', marginTop: Spacing.md }]}>
+            <Text style={[Typography.h4, { textAlign: 'center', marginTop: Spacing.md, color: colors.text }]}>
               {search ? 'No courses found' : 'Loading courses...'}
             </Text>
           </View>

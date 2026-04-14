@@ -18,6 +18,7 @@ export const create = mutation({
     frontImageUrl: v.optional(v.string()),
     backImageUrl: v.optional(v.string()),
     tags: v.array(v.string()),
+    cardBgColor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -92,6 +93,7 @@ export const update = mutation({
     frontAnnotations: v.optional(v.array(v.any())),
     backAnnotations: v.optional(v.array(v.any())),
     tags: v.optional(v.array(v.string())),
+    cardBgColor: v.optional(v.string()),
   },
   handler: async (ctx, { cardId, ...updates }) => {
     const userId = await getAuthUserId(ctx);
@@ -171,5 +173,28 @@ export const getDueCards = query({
       .withIndex("by_deck", (q) => q.eq("deckId", deckId))
       .collect();
     return cards.filter((c) => c.nextReview <= now);
+  },
+});
+
+export const getDueCardsForUser = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return 0;
+    const now = Date.now();
+    const decks = await ctx.db
+      .query("decks")
+      .withIndex("by_creator", (q) => q.eq("creatorId", userId))
+      .collect();
+    let count = 0;
+    for (const deck of decks) {
+      if (deck.isArchived) continue;
+      const cards = await ctx.db
+        .query("cards")
+        .withIndex("by_deck", (q) => q.eq("deckId", deck._id))
+        .collect();
+      count += cards.filter((c) => c.nextReview <= now).length;
+    }
+    return count;
   },
 });

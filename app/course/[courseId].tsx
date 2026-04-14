@@ -22,6 +22,7 @@ export default function CourseDetailScreen() {
   const createPost = useMutation(api.forum.createPost);
   const createGroup = useMutation(api.groups.create);
   const joinGroup = useMutation(api.groups.join);
+  const gates = useQuery(api.users.getPlanGates);
 
   const [activeTab, setActiveTab] = useState<Tab>((initialTab as Tab) ?? 'decks');
 
@@ -61,6 +62,17 @@ export default function CourseDetailScreen() {
   };
 
   const handleCreateGroup = async () => {
+    if (!gates?.canCreateGroups) {
+      Alert.alert(
+        'Starter Plan Required',
+        'Creating and joining study groups requires a Starter or Premium subscription.',
+        [
+          { text: 'Not Now', style: 'cancel' },
+          { text: 'View Plans', onPress: () => router.push('/settings/subscription') },
+        ]
+      );
+      return;
+    }
     if (!groupName.trim()) {
       Alert.alert('Required', 'Please enter a group name.');
       return;

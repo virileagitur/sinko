@@ -1,179 +1,396 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform
+  View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList,
+  Image, Alert, KeyboardAvoidingView, Platform, ActivityIndicator,
+  Pressable, ScrollView,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
-import { Colors, Typography, Spacing, Radius } from '../../constants/theme';
-import { Avatar, Button } from '../../components/ui';
+import { Typography, Spacing, Radius } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Id } from '../../convex/_generated/dataModel';
+import * as ImagePicker from 'expo-image-picker';
+import { useTheme } from '../../context/ThemeContext';
 
-export default function GroupRoomScreen() {
+
+type Tab = 'chat' | 'members' | 'settings';
+
+export default function GroupScreen() {
+  const { colors } = useTheme();
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
-  const group = useQuery(api.groups.getById, { groupId: groupId as Id<'groups'> });
-  const members = useQuery(api.groups.getMembers, { groupId: groupId as Id<'groups'> });
-  const forumPosts = useQuery(api.forum.listByGroup, { groupId: groupId as Id<'groups'> });
-  const myProfile = useQuery(api.users.getMyProfile);
-  const leaveGroup = useMutation(api.groups.leave);
-  const joinGroup = useMutation(api.groups.join);
+  const group = useQuery(api.groups.getById, { groupId: groupId as any });
+  const messages = useQuery(api.groups.listMessages, { groupId: groupId as any });
+  const members = useQuery(api.groups.getMembers, { groupId: groupId as any });
+  const myRole = useQuery(api.groups.getMyRole, { groupId: groupId as any });
+  const gates = useQuery(api.users.getPlanGates);
+  const sendMessage = useMutation(api.groups.sendMessage);
+  const updateGroup = useMutation(api.groups.updateGroup);
+  const generateUploadUrl = useMutation(api.storage.generateUploadUrl);
 
-  const [tab, setTab] = useState<'feed' | 'members'>('feed');
-  const [leaving, setLeaving] = useState(false);
+  const [tab, setTab] = useState<Tab>('chat');
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const flatRef = useRef<FlatList>(null);
 
-  const isMember = members?.some((m: any) => m.userId === myProfile?._id);
+  // Settings edit state
+  const [editName, setEditName] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editPrivate, setEditPrivate] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const handleLeave = () => {
-    Alert.alert('Leave Group', `Leave "${group?.name}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Leave', style: 'destructive', onPress: async () => {
-          setLeaving(true);
-          try {
-            await leaveGroup({ groupId: groupId as Id<'groups'> });
-            router.back();
-          } catch (err: any) {
-            Alert.alert('Error', err?.message ?? 'Could not leave group.');
-          } finally {
-            setLeaving(false);
-          }
-        }
+  useEffect(() => {
+    if (group) {
+      setEditName(group.name);
+      setEditDesc(group.description ?? '');
+      setEditPrivate(group.isPrivate);
+    }
+  }, [group?._id]);
+
+  // Auto-scroll chat to bottom on new message
+  useEffect(() => {
+    if (messages && messages.length > 0) {
+      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  }, [messages?.length]);
+
+  const handleSend = async () => {
+    if (!input.trim()) return;
+    setSending(true);
+    try {
+      await sendMessage({ groupId: groupId as any, content: input.trim() });
+      setInput('');
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Could not send message');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleAttachFile = async () => {
+    const limitMb = gates?.fileSizeLimitMb ?? 0;
+    if (limitMb === 0) {
+      Alert.alert('Paid Feature', 'File sharing requires a Starter or Premium plan.', [
+        { text: 'Not Now', style: 'cancel' },
+        { text: 'See Plans', onPress: () => router.push('/settings/subscription') },
+      ]);
+      return;
+    }
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return;
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (result.canceled || !result.assets[0]) return;
+
+    const asset = result.assets[0];
+    const sizeBytes = (asset as any).fileSize ?? 0;
+    const limitBytes = limitMb * 1024 * 1024;
+    if (sizeBytes > limitBytes) {
+      Alert.alert('File Too Large', `Your plan allows up to ${limitMb} MB. This file is ${(sizeBytes / 1024 / 1024).toFixed(1)} MB.`);
+      return;
+    }
+
+    setSending(true);
+    try {
+      const uploadUrl = await generateUploadUrl();
+      const blob = await (await fetch(asset.uri)).blob();
+      const uploadRes = await fetch(uploadUrl, { method: 'POST', headers: { 'Content-Type': asset.mimeType ?? 'image/jpeg' }, body: blob });
+      if (!uploadRes.ok) throw new Error('Upload failed');
+      await sendMessage({ groupId: groupId as any, content: `📎 Shared a file`, fileUrls: [asset.uri] } as any);
+    } catch (e: any) {
+      Alert.alert('Upload failed', e?.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const uploadImage = async (side: 'avatar' | 'banner') => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets[0]) return;
+
+    try {
+      const uploadUrl = await generateUploadUrl();
+      const blob = await (await fetch(result.assets[0].uri)).blob();
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': result.assets[0].mimeType ?? 'image/jpeg' },
+        body: blob,
+      });
+      if (!uploadRes.ok) throw new Error('Upload failed');
+      const { storageId } = await uploadRes.json();
+      const imageUrl = result.assets[0].uri; // Optimistic local URI
+
+      if (side === 'avatar') {
+        await updateGroup({ groupId: groupId as any, avatarUrl: imageUrl, avatarStorageId: storageId });
+      } else {
+        await updateGroup({ groupId: groupId as any, bannerUrl: imageUrl, bannerStorageId: storageId });
       }
-    ]);
+    } catch (e: any) {
+      Alert.alert('Upload failed', e?.message);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    if (!editName.trim()) { Alert.alert('Required', 'Group name cannot be empty'); return; }
+    setSaving(true);
+    try {
+      await updateGroup({
+        groupId: groupId as any,
+        name: editName.trim(),
+        description: editDesc.trim() || undefined,
+        isPrivate: editPrivate,
+      });
+      Alert.alert('Saved!', 'Group settings updated.');
+    } catch (e: any) {
+      Alert.alert('Error', e?.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!group) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.center}><ActivityIndicator color={Colors.azure} /></View>
-      </SafeAreaView>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
+        <ActivityIndicator color={colors.azure} />
+      </View>
     );
   }
 
+  const isAdmin = myRole === 'admin';
+
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      {/* Group Header */}
-      <View style={styles.groupHeader}>
-        <View style={[styles.groupAvatar, { backgroundColor: (group.avatarColor ?? Colors.azure) + '25' }]}>
-          <Text style={{ fontWeight: '800', fontSize: 22, color: group.avatarColor ?? Colors.azure }}>
-            {group.name.slice(0, 2).toUpperCase()}
-          </Text>
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.groupName}>{group.name}</Text>
-          <Text style={styles.groupMeta}>
-            {group.memberCount} members · {group.isPrivate ? '🔒 Private' : '🌍 Public'}
-          </Text>
-          {group.description && (
-            <Text style={styles.groupDesc} numberOfLines={2}>{group.description}</Text>
-          )}
-        </View>
-        {isMember ? (
-          <TouchableOpacity style={styles.leaveBtn} onPress={handleLeave} disabled={leaving}>
-            {leaving
-              ? <ActivityIndicator size="small" color={Colors.error} />
-              : <Text style={{ color: Colors.error, fontWeight: '600', fontSize: 13 }}>Leave</Text>
-            }
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['bottom']}>
+      {/* ── Group Header (Banner + Avatar) ── */}
+      <View>
+        {/* Banner */}
+        <TouchableOpacity
+          disabled={!isAdmin}
+          onPress={() => isAdmin && uploadImage('banner')}
+          activeOpacity={isAdmin ? 0.8 : 1}
+        >
+          <View style={[styles.banner, group.bannerUrl ? undefined : { backgroundColor: group.avatarColor + '44' }]}>
+            {group.bannerUrl ? (
+              <Image source={{ uri: group.bannerUrl }} style={styles.bannerImage} resizeMode="cover" />
+            ) : (
+              <View style={styles.bannerPlaceholder}>
+                {isAdmin && <Ionicons name="camera-outline" size={22} color={group.avatarColor} />}
+              </View>
+            )}
+            {isAdmin && (
+              <View style={styles.bannerEditBadge}>
+                <Ionicons name="camera" size={12} color="#fff" />
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
+
+        {/* Back button */}
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={22} color="#fff" />
+        </TouchableOpacity>
+
+        {/* Avatar */}
+        <View style={[styles.avatarArea, { backgroundColor: colors.white, borderBottomColor: colors.border }]}>
+          <TouchableOpacity onPress={() => isAdmin && uploadImage('avatar')} disabled={!isAdmin}>
+            <View style={[styles.groupAvatar, { backgroundColor: group.avatarColor + '30', borderColor: colors.white }]}>
+              {group.avatarUrl ? (
+                <Image source={{ uri: group.avatarUrl }} style={{ width: '100%', height: '100%', borderRadius: Radius.full }} />
+              ) : (
+                <Text style={[styles.avatarText, { color: group.avatarColor }]}>
+                  {group.name.slice(0, 2).toUpperCase()}
+                </Text>
+              )}
+              {isAdmin && (
+                <View style={styles.avatarEditBadge}>
+                  <Ionicons name="camera" size={10} color="#fff" />
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={styles.joinBtn}
-            onPress={() => joinGroup({ groupId: groupId as Id<'groups'> }).catch(() => {})}
-          >
-            <Text style={{ color: Colors.white, fontWeight: '600', fontSize: 13 }}>Join</Text>
-          </TouchableOpacity>
-        )}
+          <View>
+            <Text style={[styles.groupName, { color: colors.text }]}>{group.name}</Text>
+            <Text style={[styles.groupMeta, { color: colors.textMuted }]}>
+              {group.memberCount} members · {group.isPrivate ? '🔒 Private' : '🌍 Public'}
+            </Text>
+          </View>
+        </View>
       </View>
 
-      {/* Tabs */}
-      <View style={styles.tabs}>
-        {(['feed', 'members'] as const).map((t) => (
+      {/* ── Tabs ── */}
+      <View style={[styles.tabRow, { backgroundColor: colors.white, borderBottomColor: colors.border }]}>
+        {([
+          { id: 'chat', label: 'Chat', icon: 'chatbubbles-outline' },
+          { id: 'members', label: 'Members', icon: 'people-outline' },
+          ...(isAdmin ? [{ id: 'settings', label: 'Settings', icon: 'settings-outline' }] : []),
+        ] as { id: Tab; label: string; icon: string }[]).map((t) => (
           <TouchableOpacity
-            key={t}
-            style={[styles.tab, tab === t && styles.tabActive]}
-            onPress={() => setTab(t)}
+            key={t.id}
+            style={[styles.tab, tab === t.id && { borderBottomWidth: 2.5, borderBottomColor: colors.azure }]}
+            onPress={() => setTab(t.id)}
           >
-            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
-              {t === 'feed' ? 'Discussions' : `Members (${members?.length ?? 0})`}
-            </Text>
+            <Ionicons name={t.icon as any} size={16} color={tab === t.id ? colors.azure : colors.textMuted} />
+            <Text style={[styles.tabText, { color: tab === t.id ? colors.azure : colors.textMuted }]}>{t.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* Feed */}
-      {tab === 'feed' && (
-        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-          {isMember && (
-            <TouchableOpacity
-              style={styles.newPostBtn}
-              onPress={() => Alert.alert('Post', 'Create a post in this group (coming soon)')}
-            >
-              <Ionicons name="create-outline" size={18} color={Colors.azure} />
-              <Text style={{ color: Colors.azure, fontWeight: '600', fontSize: 14 }}>
-                Write something...
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          {forumPosts && forumPosts.length > 0 ? (
-            forumPosts.map((post: any) => (
-              <TouchableOpacity
-                key={post._id}
-                style={styles.postCard}
-                onPress={() => router.push(`/forum/${post._id}` as any)}
-                activeOpacity={0.85}
-              >
-                {post.isPinned && (
-                  <View style={styles.pinnedRow}>
-                    <Ionicons name="pin" size={12} color={Colors.azure} />
-                    <Text style={styles.pinnedText}>Pinned</Text>
-                  </View>
-                )}
-                <Text style={styles.postTitle}>{post.title}</Text>
-                <Text style={styles.postPreview} numberOfLines={2}>{post.content}</Text>
-                <View style={styles.postFooter}>
-                  <Text style={styles.postReactions}>
-                    👍 {post.reactions.like}  💡 {post.reactions.helpful}  🔥 {post.reactions.fire}
+      {/* ── Chat Tab ── */}
+      {tab === 'chat' && (
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        >
+          <FlatList
+            ref={flatRef}
+            data={messages}
+            keyExtractor={(item) => item._id}
+            contentContainerStyle={styles.chatList}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={() => (
+              <View style={styles.chatEmpty}>
+                <Ionicons name="chatbubbles-outline" size={48} color={colors.textLight} />
+                <Text style={[styles.chatEmptyText, { color: colors.textMuted }]}>No messages yet. Say hi! 👋</Text>
+              </View>
+            )}
+            renderItem={({ item }) => (
+              <View style={styles.messageRow}>
+                <View style={[styles.msgAvatar, { backgroundColor: colors.azure + '22' }]}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: colors.azure }}>
+                    {(item.authorName ?? 'S').charAt(0).toUpperCase()}
                   </Text>
-                  <Text style={Typography.caption}>{post.commentCount} comments</Text>
                 </View>
-              </TouchableOpacity>
-            ))
-          ) : (
-            <View style={styles.empty}>
-              <Ionicons name="chatbubbles-outline" size={40} color={Colors.textLight} />
-              <Text style={[Typography.bodySmall, { color: Colors.textMuted, marginTop: Spacing.sm, textAlign: 'center' }]}>
-                No posts yet. Start the conversation!
-              </Text>
-            </View>
-          )}
-        </ScrollView>
+                <View style={[styles.messageBubble, { backgroundColor: colors.white, borderColor: colors.border }]}>
+                  <Text style={[styles.msgAuthor, { color: colors.azure }]}>{item.authorName ?? 'Student'}</Text>
+                  <Text style={[styles.msgContent, { color: colors.text }]}>{item.content}</Text>
+                </View>
+              </View>
+            )}
+          />
+
+          {/* Input bar */}
+          <View style={[styles.inputBar, { borderTopColor: colors.border, backgroundColor: colors.white }]}>
+            <TouchableOpacity onPress={handleAttachFile} style={{ padding: 4 }}>
+              <Ionicons name="attach" size={22} color={gates?.canShareFiles ? colors.azure : colors.textLight} />
+            </TouchableOpacity>
+            <TextInput
+              style={[styles.chatInput, { backgroundColor: colors.borderLight, color: colors.text }]}
+              value={input}
+              onChangeText={setInput}
+              placeholder="Write a message..."
+              placeholderTextColor={colors.textLight}
+              multiline
+              maxLength={500}
+              returnKeyType="send"
+              blurOnSubmit={false}
+            />
+            <Pressable
+              style={({ pressed }) => [styles.sendBtn, { opacity: pressed || !input.trim() ? 0.5 : 1, backgroundColor: colors.azure }]}
+              onPress={handleSend}
+              disabled={!input.trim() || sending}
+            >
+              {sending ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="send" size={18} color="#fff" />
+              )}
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
       )}
 
-      {/* Members */}
+      {/* ── Members Tab ── */}
       {tab === 'members' && (
-        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-          {members?.map((member: any) => (
-            <View key={member._id} style={styles.memberRow}>
-              <Avatar name={member.name ?? 'Student'} imageUrl={member.avatarUrl} size={40} />
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-                  <Text style={styles.memberName}>{member.name ?? 'Student'}</Text>
-                  {member.role === 'admin' && (
-                    <View style={styles.adminBadge}>
-                      <Text style={styles.adminText}>Admin</Text>
-                    </View>
-                  )}
-                </View>
-                {member.school && (
-                  <Text style={styles.memberSchool}>{member.school}</Text>
-                )}
+        <FlatList
+          data={members}
+          keyExtractor={(item) => item._id}
+          contentContainerStyle={{ padding: Spacing.md, gap: Spacing.sm }}
+          renderItem={({ item }) => (
+            <View style={[styles.memberRow, { backgroundColor: colors.white, borderColor: colors.border }]}>
+              <View style={[styles.memberAvatar, { backgroundColor: colors.azure + '22' }]}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: colors.azure }}>
+                  {(item.name ?? 'S').charAt(0).toUpperCase()}
+                </Text>
               </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.memberName, { color: colors.text }]}>{item.name}</Text>
+                {item.school && <Text style={[styles.memberSchool, { color: colors.textMuted }]}>🎓 {item.school}</Text>}
+              </View>
+              {item.role === 'admin' && (
+                <View style={[styles.adminBadge, { backgroundColor: colors.azureLight }]}>
+                  <Text style={[styles.adminBadgeText, { color: colors.azure }]}>Admin</Text>
+                </View>
+              )}
             </View>
-          ))}
+          )}
+        />
+      )}
+
+      {/* ── Settings Tab (admin only) ── */}
+      {tab === 'settings' && isAdmin && (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md }}>
+          <Text style={[styles.settingsSection, { color: colors.textMuted }]}>GROUP PHOTOS</Text>
+          <View style={styles.photoRow}>
+            <TouchableOpacity style={[styles.photoBtn, { backgroundColor: colors.white, borderColor: colors.azure }]} onPress={() => uploadImage('avatar')}>
+              {group.avatarUrl ? (
+                <Image source={{ uri: group.avatarUrl }} style={styles.photoThumb} />
+              ) : (
+                <Ionicons name="person-circle-outline" size={32} color={colors.azure} />
+              )}
+              <Text style={[styles.photoBtnText, { color: colors.azure }]}>Group Avatar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.photoBtn, { backgroundColor: colors.white, borderColor: colors.azure }]} onPress={() => uploadImage('banner')}>
+              {group.bannerUrl ? (
+                <Image source={{ uri: group.bannerUrl }} style={styles.photoThumb} />
+              ) : (
+                <Ionicons name="image-outline" size={32} color={colors.azure} />
+              )}
+              <Text style={[styles.photoBtnText, { color: colors.azure }]}>Banner Photo</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.settingsSection, { color: colors.textMuted }]}>GROUP INFO</Text>
+          <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Name *</Text>
+          <TextInput
+            style={[styles.fieldInput, { backgroundColor: colors.borderLight, borderColor: colors.border, color: colors.text }]}
+            value={editName}
+            onChangeText={setEditName}
+            placeholder="Group name"
+            placeholderTextColor={colors.textLight}
+            maxLength={60}
+          />
+          <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Description</Text>
+          <TextInput
+            style={[styles.fieldInput, { minHeight: 80, backgroundColor: colors.borderLight, borderColor: colors.border, color: colors.text }]}
+            value={editDesc}
+            onChangeText={setEditDesc}
+            placeholder="What does this group study?"
+            placeholderTextColor={colors.textLight}
+            multiline
+            textAlignVertical="top"
+          />
+
+          <Pressable style={styles.privacyRow} onPress={() => setEditPrivate((p) => !p)}>
+            <View style={[styles.checkbox, { borderColor: colors.border }, editPrivate && { backgroundColor: colors.azure, borderColor: colors.azure }]}>
+              {editPrivate && <Ionicons name="checkmark" size={14} color="#fff" />}
+            </View>
+            <View>
+              <Text style={[styles.privacyLabel, { color: colors.text }]}>Private Group</Text>
+              <Text style={[styles.privacyHint, { color: colors.textMuted }]}>Only invited members can join</Text>
+            </View>
+          </Pressable>
+
+          <TouchableOpacity
+            style={[styles.saveBtn, { backgroundColor: colors.azure }, saving && { opacity: 0.5 }]}
+            onPress={handleSaveSettings}
+            disabled={saving}
+          >
+            {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveBtnText}>Save Changes</Text>}
+          </TouchableOpacity>
         </ScrollView>
       )}
     </SafeAreaView>
@@ -181,103 +398,106 @@ export default function GroupRoomScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bg },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  groupHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    backgroundColor: Colors.white,
-    padding: Spacing.md,
+  banner: { height: 130, width: '100%' },
+  bannerImage: { width: '100%', height: '100%' },
+  bannerPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  bannerEditBadge: {
+    position: 'absolute', bottom: 8, right: 10,
+    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 12, padding: 5,
+  },
+  backBtn: {
+    position: 'absolute', top: 12, left: 12,
+    backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 20, padding: 6,
+  },
+  avatarArea: {
+    flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.sm,
+    paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    marginTop: -24,
   },
   groupAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 60, height: 60, borderRadius: 30,
+    borderWidth: 3, alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden', position: 'relative',
   },
-  groupName: { fontSize: 17, fontWeight: '700', color: Colors.text },
-  groupMeta: { ...Typography.caption, color: Colors.textMuted, marginTop: 2 },
-  groupDesc: { ...Typography.bodySmall, color: Colors.textMuted, marginTop: 4 },
-  leaveBtn: {
-    borderWidth: 1.5,
-    borderColor: Colors.error,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: Radius.full,
+  avatarText: { fontSize: 20, fontWeight: '800' },
+  avatarEditBadge: {
+    position: 'absolute', bottom: 0, right: 0,
+    borderRadius: 10, padding: 3,
   },
-  joinBtn: {
-    backgroundColor: Colors.azure,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: Radius.full,
-  },
-  tabs: {
+  groupName: { fontSize: 16, fontWeight: '700' },
+  groupMeta: { ...Typography.caption },
+  tabRow: {
     flexDirection: 'row',
-    backgroundColor: Colors.white,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
   },
-  tab: {
-    flex: 1,
-    paddingVertical: 13,
-    alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+  tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, gap: 4 },
+  tabText: { fontSize: 13, fontWeight: '600' },
+  // Chat
+  chatList: { padding: Spacing.md, paddingBottom: 12 },
+  chatEmpty: { paddingTop: 60, alignItems: 'center', gap: Spacing.sm },
+  chatEmptyText: { ...Typography.bodySmall },
+  messageRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: 12 },
+  msgAvatar: {
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  tabActive: { borderBottomColor: Colors.azure },
-  tabText: { fontSize: 14, fontWeight: '600', color: Colors.textMuted },
-  tabTextActive: { color: Colors.azure },
-  scroll: { flex: 1 },
-  newPostBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    margin: Spacing.md,
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    borderWidth: 1.5,
-    borderColor: Colors.azureMid,
-    borderStyle: 'dashed',
-    padding: Spacing.md,
+  messageBubble: {
+    flex: 1, borderRadius: Radius.lg,
+    borderWidth: 1, padding: Spacing.sm,
   },
-  postCard: {
-    backgroundColor: Colors.white,
-    padding: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+  msgAuthor: { fontSize: 12, fontWeight: '700', marginBottom: 2 },
+  msgContent: { fontSize: 14, lineHeight: 20 },
+  inputBar: {
+    flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.sm,
+    padding: Spacing.sm, paddingHorizontal: Spacing.md,
+    borderTopWidth: 1,
   },
-  pinnedRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
-  pinnedText: { fontSize: 11, color: Colors.azure, fontWeight: '600' },
-  postTitle: { fontSize: 15, fontWeight: '600', color: Colors.text, marginBottom: 4 },
-  postPreview: { ...Typography.bodySmall, color: Colors.textMuted, lineHeight: 18 },
-  postFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: Spacing.sm,
+  chatInput: {
+    flex: 1, borderRadius: Radius.xl,
+    paddingHorizontal: 14, paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    fontSize: 15, maxHeight: 120,
   },
-  postReactions: { fontSize: 12, color: Colors.textMuted },
-  empty: { padding: Spacing.xxl, alignItems: 'center' },
+  sendBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  // Members
   memberRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    backgroundColor: Colors.white,
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    borderRadius: Radius.lg, borderWidth: 1,
     padding: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
   },
-  memberName: { fontSize: 15, fontWeight: '600', color: Colors.text },
-  memberSchool: { ...Typography.caption, color: Colors.textMuted, marginTop: 2 },
-  adminBadge: {
-    backgroundColor: Colors.azureLight,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: Radius.full,
+  memberAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  memberName: { fontSize: 14, fontWeight: '600' },
+  memberSchool: { ...Typography.caption },
+  adminBadge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: Radius.full },
+  adminBadgeText: { fontSize: 11, fontWeight: '700' },
+  // Settings
+  settingsSection: { ...Typography.label, marginTop: Spacing.sm },
+  photoRow: { flexDirection: 'row', gap: Spacing.md },
+  photoBtn: {
+    flex: 1, borderRadius: Radius.lg, borderWidth: 1.5,
+    borderStyle: 'dashed', padding: Spacing.md,
+    alignItems: 'center', justifyContent: 'center', gap: Spacing.xs, minHeight: 80,
   },
-  adminText: { fontSize: 10, fontWeight: '700', color: Colors.azure },
+  photoThumb: { width: 48, height: 48, borderRadius: Radius.md },
+  photoBtnText: { fontSize: 12, fontWeight: '600' },
+  fieldLabel: { fontSize: 13, fontWeight: '600', marginBottom: 4 },
+  fieldInput: {
+    borderRadius: Radius.md, padding: Spacing.md,
+    fontSize: 15, borderWidth: 1,
+  },
+  privacyRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  checkbox: {
+    width: 22, height: 22, borderRadius: 6, borderWidth: 2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  privacyLabel: { fontSize: 15, fontWeight: '600' },
+  privacyHint: { fontSize: 12 },
+  saveBtn: {
+    borderRadius: Radius.lg, padding: 14,
+    alignItems: 'center', marginTop: Spacing.sm,
+  },
+  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 });

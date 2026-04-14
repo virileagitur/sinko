@@ -77,3 +77,21 @@ export const getRecentSessions = query({
       .take(10);
   },
 });
+
+export const listMySessions = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
+    const sessions = await ctx.db
+      .query("studySessions")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .order("desc")
+      .take(50);
+    return Promise.all(sessions.map(async (s) => {
+      const deck = await ctx.db.get(s.deckId);
+      return { ...s, deckTitle: deck?.title ?? "Deleted deck", deckIcon: deck?.iconEmoji ?? "📚" };
+    }));
+  },
+});
+

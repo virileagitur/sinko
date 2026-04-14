@@ -20,6 +20,13 @@ export default defineSchema({
     dailyImportDate: v.optional(v.string()),
     streakDays: v.number(),
     lastStudiedDate: v.optional(v.string()),
+    // Notification preferences (stored in DB per request)
+    notifyDailyReminder: v.optional(v.boolean()),
+    notifyStreak: v.optional(v.boolean()),
+    notifyGroupMessages: v.optional(v.boolean()),
+    notifySubscription: v.optional(v.boolean()),
+    // Theme
+    theme: v.optional(v.union(v.literal("light"), v.literal("dark"))),
   }).index("by_userId", ["userId"]),
 
   // ─── Courses ──────────────────────────────────────────
@@ -41,7 +48,11 @@ export default defineSchema({
     isPublic: v.boolean(),
     cardCount: v.number(),
     colorTag: v.optional(v.string()),
+    iconEmoji: v.optional(v.string()),
+    backgroundStorageId: v.optional(v.id("_storage")),
+    backgroundImageUrl: v.optional(v.string()),
     tags: v.array(v.string()),
+    isArchived: v.optional(v.boolean()),
   })
     .index("by_course", ["courseId"])
     .index("by_creator", ["creatorId"]),
@@ -64,6 +75,7 @@ export default defineSchema({
       v.literal("definition")
     ),
     tags: v.array(v.string()),
+    cardBgColor: v.optional(v.string()),
     // Spaced repetition (SM-2)
     interval: v.number(),
     easeFactor: v.number(),
@@ -121,6 +133,10 @@ export default defineSchema({
     isPrivate: v.boolean(),
     memberCount: v.number(),
     avatarColor: v.string(),
+    avatarStorageId: v.optional(v.id("_storage")),
+    avatarUrl: v.optional(v.string()),
+    bannerStorageId: v.optional(v.id("_storage")),
+    bannerUrl: v.optional(v.string()),
   }).index("by_course", ["courseId"]),
 
   groupMembers: defineTable({
@@ -131,6 +147,18 @@ export default defineSchema({
     .index("by_group", ["groupId"])
     .index("by_user", ["userId"])
     .index("by_group_user", ["groupId", "userId"]),
+
+  // ─── Group Messages (real-time chat) ─────────────────
+  groupMessages: defineTable({
+    groupId: v.id("groups"),
+    authorId: v.id("users"),
+    content: v.string(),
+    fileUrls: v.optional(v.array(v.string())),
+    fileNames: v.optional(v.array(v.string())),
+    fileSizeBytes: v.optional(v.array(v.number())),
+    edited: v.optional(v.boolean()),
+  })
+    .index("by_group", ["groupId"]),
 
   // ─── Study Sessions ───────────────────────────────────
   studySessions: defineTable({

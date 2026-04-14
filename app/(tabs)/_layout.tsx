@@ -1,15 +1,16 @@
 import { Tabs, router } from 'expo-router';
 import { useConvexAuth, useMutation, useQuery } from 'convex/react';
 import { useEffect } from 'react';
-import { Colors } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
 import { api } from '../../convex/_generated/api';
+import { useTheme } from '../../context/ThemeContext';
 
 export default function TabsLayout() {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const profile = useQuery(api.users.getMyProfile);
   const ensureProfile = useMutation(api.users.ensureProfile);
+  const { colors } = useTheme();
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -30,11 +31,11 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors.azure,
-        tabBarInactiveTintColor: Colors.textLight,
+        tabBarActiveTintColor: colors.azure,
+        tabBarInactiveTintColor: colors.textLight,
         tabBarStyle: {
-          backgroundColor: Colors.white,
-          borderTopColor: Colors.border,
+          backgroundColor: colors.white,
+          borderTopColor: colors.border,
           borderTopWidth: 1,
           height: Platform.OS === 'ios' ? 84 : 60,
           paddingBottom: Platform.OS === 'ios' ? 28 : 8,
@@ -45,9 +46,9 @@ export default function TabsLayout() {
           fontWeight: '500',
           marginTop: -2,
         },
-        headerStyle: { backgroundColor: Colors.white },
+        headerStyle: { backgroundColor: colors.white },
         headerShadowVisible: false,
-        headerTitleStyle: { fontSize: 17, fontWeight: '700', color: Colors.text },
+        headerTitleStyle: { fontSize: 17, fontWeight: '700', color: colors.text },
       }}
     >
       <Tabs.Screen
@@ -58,7 +59,7 @@ export default function TabsLayout() {
             <Ionicons name={focused ? 'home' : 'home-outline'} size={24} color={color} />
           ),
           headerTitle: 'sinko',
-          headerTitleStyle: { fontSize: 24, fontWeight: '800', color: Colors.azure, letterSpacing: -0.5 },
+          headerTitleStyle: { fontSize: 24, fontWeight: '800', color: colors.azure, letterSpacing: -0.5 },
         }}
       />
       <Tabs.Screen

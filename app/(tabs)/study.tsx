@@ -3,9 +3,13 @@ import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
-import { Colors, Typography, Spacing, Radius } from '../../constants/theme';
+import { Colors, Spacing, Radius, Typography } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme } from '../../context/ThemeContext';
+
+// Modes that require Starter+ plan
+const PAID_MODES = new Set(['spaced', 'write']);
 
 const MODES = [
   {
@@ -13,8 +17,8 @@ const MODES = [
     icon: 'albums',
     label: 'Flashcards',
     desc: 'Classic flip-card study. Tap to reveal the answer.',
-    color: Colors.azure,
-    bg: Colors.azureLight,
+    color: '#2563EB',
+    bg: '#EFF6FF',
   },
   {
     id: 'pomodoro',
@@ -25,19 +29,11 @@ const MODES = [
     bg: '#FEF2F2',
   },
   {
-    id: 'spaced',
-    icon: 'timer',
-    label: 'Spaced Repetition',
-    desc: 'SM-2 algorithm schedules cards by difficulty. Scientifically proven.',
-    color: Colors.lilyDark,
-    bg: Colors.lilyLight,
-  },
-  {
     id: 'quiz',
     icon: 'help-circle',
     label: 'Quiz',
     desc: 'Multiple choice questions. AI generates 3 wrong answers.',
-    color: Colors.success,
+    color: '#16A34A',
     bg: '#F0FDF4',
   },
   {
@@ -45,64 +41,105 @@ const MODES = [
     icon: 'git-compare',
     label: 'Matching',
     desc: 'Drag and match card pairs. Great for testing recall.',
-    color: Colors.warning,
+    color: '#D97706',
     bg: '#FFFBEB',
+  },
+  {
+    id: 'spaced',
+    icon: 'timer',
+    label: 'Spaced Repetition',
+    desc: 'SM-2 algorithm schedules cards by difficulty. Scientifically proven.',
+    color: '#5B21B6',
+    bg: '#F5F3FF',
+    paidOnly: true,
   },
   {
     id: 'write',
     icon: 'create',
     label: 'Write',
     desc: 'Type the answer from memory. Builds deeper recall.',
-    color: Colors.info,
+    color: '#0891B2',
     bg: '#ECFEFF',
+    paidOnly: true,
   },
 ];
 
 export default function StudyHubScreen() {
-  const myDecks = useQuery(api.decks.listMine);
+  const { colors } = useTheme();
+  const myDecks = useQuery(api.decks.listMine, {});
+  const gates = useQuery(api.users.getPlanGates);
 
-  const startMode = (modeId: string) => {
+  const startMode = (modeId: string, locked: boolean) => {
+    if (locked) {
+      router.push('/settings/subscription');
+      return;
+    }
     if (!myDecks || myDecks.length === 0) {
       router.push('/discover');
       return;
     }
-    router.push(`/study/${modeId}?deckId=${myDecks[0]._id}` as any);
+    requestAnimationFrame(() => {
+      router.push(`/study/${modeId}?deckId=${myDecks[0]._id}` as any);
+    });
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bg }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={styles.title}>Study Modes</Text>
-          <Text style={styles.subtitle}>Choose how you want to study today</Text>
+          <Text style={[styles.title, { color: colors.text }]}>Study Modes</Text>
+          <Text style={[styles.subtitle, { color: colors.textMuted }]}>Choose how you want to study today</Text>
         </View>
 
         <View style={styles.modesList}>
-        {MODES.map((mode) => (
-            <Pressable
-              key={mode.id}
-              style={({ pressed }) => [styles.modeRow, pressed && { opacity: 0.75 }]}
-              onPress={() => requestAnimationFrame(() => startMode(mode.id))}
-            >
-              <View style={[styles.modeIconWrap, { backgroundColor: mode.bg }]}>
-                <Ionicons name={mode.icon as any} size={26} color={mode.color} />
-              </View>
-              <View style={styles.modeText}>
-                <Text style={styles.modeName}>{mode.label}</Text>
-                <Text style={styles.modeDesc}>{mode.desc}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={Colors.textLight} />
-            </Pressable>
-          ))}
+          {MODES.map((mode) => {
+            const isLocked: boolean = !!(mode.paidOnly && gates !== undefined && !gates.canUseAllModes);
+            return (
+              <Pressable
+                key={mode.id}
+                style={({ pressed }) => [
+                  styles.modeRow,
+                  { backgroundColor: colors.white, borderColor: colors.border },
+                  isLocked && styles.modeRowLocked,
+                  pressed && { opacity: 0.75 },
+                ]}
+                onPress={() => startMode(mode.id, isLocked)}
+              >
+                <View style={[styles.modeIconWrap, { backgroundColor: isLocked ? colors.borderLight : mode.bg }]}>
+                  <Ionicons name={mode.icon as any} size={26} color={isLocked ? colors.textLight : mode.color} />
+                </View>
+                <View style={styles.modeText}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={[styles.modeName, { color: isLocked ? colors.textMuted : colors.text }]}>{mode.label}</Text>
+                    {isLocked && (
+                      <View style={styles.lockBadge}>
+                        <Ionicons name="lock-closed" size={9} color="#fff" />
+                        <Text style={styles.lockBadgeText}>Starter+</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[styles.modeDesc, { color: colors.textMuted }]}>{mode.desc}</Text>
+                  {isLocked && (
+                    <Text style={styles.upgradeHint}>Tap to upgrade →</Text>
+                  )}
+                </View>
+                <Ionicons
+                  name={isLocked ? 'lock-closed-outline' : 'chevron-forward'}
+                  size={18}
+                  color={colors.textLight}
+                />
+              </Pressable>
+            );
+          })}
         </View>
 
         {/* No decks nudge */}
         {myDecks && myDecks.length === 0 && (
-          <View style={styles.nudge}>
-            <Ionicons name="information-circle-outline" size={20} color={Colors.azure} />
-            <Text style={styles.nudgeText}>
+          <View style={[styles.nudge, { backgroundColor: colors.azureLight }]}>
+            <Ionicons name="information-circle-outline" size={20} color={colors.azure} />
+            <Text style={[styles.nudgeText, { color: colors.azure }]}>
               You need at least one deck to start studying.{' '}
-              <Text style={{ color: Colors.azure, fontWeight: '600' }}
+              <Text style={{ color: colors.azure, fontWeight: '600' }}
                 onPress={() => router.push('/discover')}>
                 Browse courses →
               </Text>
@@ -130,6 +167,10 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     padding: Spacing.md,
   },
+  modeRowLocked: {
+    opacity: 0.8,
+    borderStyle: 'dashed',
+  },
   modeIconWrap: {
     width: 52,
     height: 52,
@@ -140,6 +181,17 @@ const styles = StyleSheet.create({
   modeText: { flex: 1 },
   modeName: { fontSize: 16, fontWeight: '600', color: Colors.text },
   modeDesc: { ...Typography.bodySmall, color: Colors.textMuted, marginTop: 2, lineHeight: 18 },
+  lockBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: Colors.lilyDark,
+    borderRadius: Radius.full,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  lockBadgeText: { fontSize: 9, color: '#fff', fontWeight: '700', letterSpacing: 0.5 },
+  upgradeHint: { fontSize: 11, color: Colors.lilyDark, fontWeight: '600', marginTop: 3 },
   nudge: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -149,5 +201,5 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     padding: Spacing.md,
   },
-  nudgeText: { flex: 1, ...Typography.bodySmall, color: Colors.azureDark, lineHeight: 20 },
+  nudgeText: { flex: 1, ...Typography.bodySmall, color: Colors.azure, lineHeight: 20 },
 });
