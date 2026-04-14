@@ -1,0 +1,70 @@
+import { ConvexAuthProvider } from "@convex-dev/auth/react";
+import { ConvexReactClient } from "convex/react";
+import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import * as SecureStore from "expo-secure-store";
+import { Colors } from "../constants/theme";
+import { ThemeProvider, useTheme } from "../context/ThemeContext";
+
+const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!);
+
+// Wrap SecureStore so it matches the localStorage API ConvexAuthProvider expects
+const secureStorage = {
+  getItem: (key: string) => SecureStore.getItemAsync(key),
+  setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
+  removeItem: (key: string) => SecureStore.deleteItemAsync(key),
+};
+
+function AppStack() {
+  const { isDark, colors } = useTheme();
+  return (
+    <>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.white },
+          headerShadowVisible: false,
+          headerTitleStyle: { fontSize: 17, fontWeight: '600', color: colors.text },
+          headerTintColor: colors.azure,
+          contentStyle: { backgroundColor: colors.bg },
+          headerBackTitle: '',
+        }}
+      >
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="course/[courseId]" options={{ title: 'Course' }} />
+        <Stack.Screen name="deck/[deckId]" options={{ title: 'Deck' }} />
+        <Stack.Screen name="deck/create" options={{ title: 'Create Deck', presentation: 'modal' }} />
+        <Stack.Screen name="card/[cardId]/edit" options={{ title: 'Edit Card', presentation: 'modal' }} />
+        <Stack.Screen name="study/flashcard" options={{ headerShown: false }} />
+        <Stack.Screen name="study/pomodoro" options={{ headerShown: false }} />
+        <Stack.Screen name="study/quiz" options={{ headerShown: false }} />
+        <Stack.Screen name="study/matching" options={{ headerShown: false }} />
+        <Stack.Screen name="study/spaced" options={{ headerShown: false }} />
+        <Stack.Screen name="study/write" options={{ headerShown: false }} />
+        <Stack.Screen name="forum/[postId]" options={{ title: 'Discussion' }} />
+        <Stack.Screen name="group/[groupId]" options={{ title: 'Group' }} />
+        <Stack.Screen name="ai/import" options={{ title: 'AI Import', presentation: 'modal' }} />
+        <Stack.Screen name="ai/preview" options={{ title: 'Review Cards', presentation: 'modal' }} />
+        <Stack.Screen name="settings/profile" options={{ title: 'Edit Profile' }} />
+        <Stack.Screen name="settings/subscription" options={{ title: 'Subscription' }} />
+      </Stack>
+    </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ConvexAuthProvider client={convex} storage={secureStorage}>
+        <SafeAreaProvider>
+          <ThemeProvider>
+            <AppStack />
+          </ThemeProvider>
+        </SafeAreaProvider>
+      </ConvexAuthProvider>
+    </GestureHandlerRootView>
+  );
+}
